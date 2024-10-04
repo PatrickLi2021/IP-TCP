@@ -55,7 +55,6 @@ handleInterface(IPStack, Interface):
 type IPStack struct {
 Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
 	Handler_table map[int]HandlerFunc        // maps protocol numbers to handlers
-	Neighbors     map[netip.Addr]Interface   // maps (virtual) IPs to Interfaces
 	Interfaces    map[string]*Interface      // maps interface names to interfaces
 	Ip            netip.Addr                 // the IP address of this node
 	Mutex         sync.Mutex                 // for concurrency
@@ -82,6 +81,7 @@ Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
 type Interface struct {
 	Name   string       	// the name of the interface
 	IP     netip.Addr   	// the IP address of the interface on this host
+	Neighbors     map[netip.Addr]Interface   // maps (virtual) IPs to Interfaces
 	Prefix netip.Prefix 	// the network submask/prefix
 	Udp    net.UDPAddr  	// the UDP address of the interface on this host
 	Down   bool         	// whether the interface is down or not
