@@ -72,6 +72,8 @@ type Interface struct {
 }
 ```
 
+We would also want the interface struct to store a list of neighbor interfaces. Each interface is listening to packets. Within a node, we would have a thread per interface because each node has a UDPConn.
+
 ```
 type IPPacket struct {
 	Header ipv4header.IPv4Header,
