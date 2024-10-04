@@ -16,9 +16,10 @@ Handled in receive function, will look at protocolNum to find corresponding call
 
 - What structures will you use to store routing/forwarding information?
 
-Forwarding information is stored in a map from net mask to interface struct
-Interface struct contains udp port and ip
-Routing information is stored 
+Forwarding information is stored in a map from net mask to interface struct.
+Interface struct contains udp port and ip.
+Routing information is stored in a routing table. 
+The two types Host and Router will implicitly use IPStack fields either forwarding table or routing table, respectively. 
 
 - What happens when a link is disabled? (ie, how is forwarding affected)?
 
@@ -54,7 +55,6 @@ handleInterface(IPStack, Interface):
 type IPStack struct {
 Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
 	Handler_table map[int]HandlerFunc        // maps protocol numbers to handlers
-	Neighbors     map[netip.Addr]Interface   // maps (virtual) IPs to Interfaces
 	Interfaces    map[string]*Interface      // maps interface names to interfaces
 	Ip            netip.Addr                 // the IP address of this node
 	Mutex         sync.Mutex                 // for concurrency
@@ -62,9 +62,26 @@ Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
 ```
 
 ```
+type Router struct {
+Routing_table map[string](int, *Interface) // maps dest to tuple of (cost, neighbor)
+Stack IPStack // contains base IPStack fields, so that interface functions can be called on Router struct
+Update_rate int // periodic update rate for router to update neighbors
+Timeout int // timeout threshold before route expiress
+}
+```
+
+```
+type Host struct {
+Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
+	stack IPStack // contains base IPStack fields, so that interface functions can be called on Host struct
+}
+```
+
+```
 type Interface struct {
 	Name   string       	// the name of the interface
 	IP     netip.Addr   	// the IP address of the interface on this host
+	Neighbors     map[netip.Addr]Interface   // maps (virtual) IPs to Interfaces
 	Prefix netip.Prefix 	// the network submask/prefix
 	Udp    net.UDPAddr  	// the UDP address of the interface on this host
 	Down   bool         	// whether the interface is down or not
@@ -80,6 +97,16 @@ type IPPacket struct {
 	Payload []byte,
 }
 ```
+
+```
+type IPStackAPI interface {
+	Initialize(configInfo)
+	ReceiveIP(updConn)
+	SendIP(udpConn)
+	RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc)
+}
+```
+
 ```
 Initialize(configInfo IpConfig) (*IPStack, error):
 	Use data from lnx file to populate an IPStack struct
@@ -92,7 +119,7 @@ Need thread for each interface to listen for packets
 ```
 
 ```
-(IP Stack) ReceiveIP(udpConn):
+ReceiveIP(udpConn):
 	Listen on udpConn
 	Once you get packet, do packet checking
 	
@@ -111,7 +138,7 @@ use Stack map’s handler_table to call correct callback function
 ```	
 
 ```
-(IP Stack) SendIP(dest netip.Addr, protocolNum uint16, data []byte):
+SendIP(dest netip.Addr, protocolNum uint16, data []byte):
 	Construct header, marshal header
 	Marshal payload bytes
 	Append them together
@@ -172,7 +199,7 @@ Our IP API is designed to provide shared implementation code between our vhost a
 
 Our IP API will contain the following functions:
 
-`initialize(configInfo IpConfig) (*IPStack, error)`
+`initialize(configInfo IpConfig) (error)`
 
 This function will take in a lnx/configuration file that contains the nodes, neighbors, interfaces, routes, etc. that we need to initialize our IP stack. We are looking to pass in an instance of an IpAPI (which is either a host or a router) and essentially populate the fields of that struct. Note that we would also use this function to initialize any global variables (if we end up using any).
 
@@ -240,6 +267,8 @@ We’re not implementing ARP? Why not? And so do we need the MAC address?
 Sending both header + payload together in one send?
 What does protocolNum do in Send?
 If it’s for receiver to construct protocolNum, can’t receiver just reconstruct it from packet bytes?
+Statics vs RIP routing? So route in .lnx is for static routing, which is used to construct node forwarding table?
+How are routing updates being sent? Should include router specific methods in a separate Router interface?
 
 
 # Notes:
