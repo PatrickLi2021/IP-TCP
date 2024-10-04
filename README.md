@@ -16,9 +16,10 @@ Handled in receive function, will look at protocolNum to find corresponding call
 
 - What structures will you use to store routing/forwarding information?
 
-Forwarding information is stored in a map from net mask to interface struct
-Interface struct contains udp port and ip
-Routing information is stored 
+Forwarding information is stored in a map from net mask to interface struct.
+Interface struct contains udp port and ip.
+Routing information is stored in a routing table. 
+The two types Host and Router will implicitly use IPStack fields either forwarding table or routing table, respectively. 
 
 - What happens when a link is disabled? (ie, how is forwarding affected)?
 
