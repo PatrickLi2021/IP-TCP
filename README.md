@@ -16,10 +16,9 @@ Handled in receive function, will look at protocolNum to find corresponding call
 
 - What structures will you use to store routing/forwarding information?
 
-Forwarding information is stored in a map from net mask to interface struct.
-Interface struct contains udp port and ip.
-Routing information is stored in a routing table. 
-The two types Host and Router will implicitly use IPStack fields either forwarding table or routing table, respectively. 
+Forwarding information is stored in a map from net mask to interface struct
+Interface struct contains udp port and ip
+Routing information is stored 
 
 - What happens when a link is disabled? (ie, how is forwarding affected)?
 
@@ -55,6 +54,7 @@ handleInterface(IPStack, Interface):
 type IPStack struct {
 Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
 	Handler_table map[int]HandlerFunc        // maps protocol numbers to handlers
+	Neighbors     map[netip.Addr]Interface   // maps (virtual) IPs to Interfaces
 	Interfaces    map[string]*Interface      // maps interface names to interfaces
 	Ip            netip.Addr                 // the IP address of this node
 	Mutex         sync.Mutex                 // for concurrency
@@ -81,15 +81,12 @@ Forward_table map[netip.Prefix]Interface // maps IP prefixes to interfaces
 type Interface struct {
 	Name   string       	// the name of the interface
 	IP     netip.Addr   	// the IP address of the interface on this host
-	Neighbors     map[netip.Addr]Interface   // maps (virtual) IPs to Interfaces
 	Prefix netip.Prefix 	// the network submask/prefix
 	Udp    net.UDPAddr  	// the UDP address of the interface on this host
 	Down   bool         	// whether the interface is down or not
 	Listener *net.UDPConn // listen to incoming UDP packets
 }
 ```
-
-We would also want the interface struct to store a list of neighbor interfaces. Each interface is listening to packets. Within a node, we would have a thread per interface because each node has a UDPConn.
 
 ```
 type IPPacket struct {
