@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"ip-ip-pa/lnxconfig/lnxconfig"
 	"net"
 	"net/netip"
 	"sync"
@@ -31,14 +32,19 @@ type Interface struct {
 	Conn   *net.UDPConn // listen to incoming UDP packets
 }
 
+type costInterfacePair struct {
+	Interface *Interface
+	cost      uint16
+}
+
 type IPStack struct {
 	NodeType      Node
-	Forward_table map[netip.Prefix][]interface{} // maps IP prefixes to interfaces or routing data
-	Handler_table map[int]HandlerFunc            // maps protocol numbers to handlers
-	Neighbors     map[netip.Addr]Interface       // maps (virtual) IPs to Interfaces
-	Interfaces    map[string]*Interface          // maps interface names to interfaces
-	Ip            netip.Addr                     // the IP address of this node
-	Mutex         sync.Mutex                     // for concurrency
+	Forward_table map[netip.Prefix]*costInterfacePair // maps IP prefixes to cost-interface pair
+	Handler_table map[int]HandlerFunc                 // maps protocol numbers to handlers
+	Neighbors     map[netip.Addr]Interface            // maps (virtual) IPs to Interfaces
+	Interfaces    map[string]*Interface               // maps interface names to interfaces
+	Ip            netip.Addr                          // the IP address of this node
+	Mutex         sync.Mutex                          // for concurrency
 }
 
 func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
@@ -67,7 +73,7 @@ func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
 			return err
 		}
 		newInterface.Conn = conn
-		
+
 		// Map interface name to interface struct - TODO maybe change this map key
 		stack.Interfaces[newInterface.Name] = &newInterface
 	}
