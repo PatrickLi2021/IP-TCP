@@ -42,13 +42,10 @@ type IPStack struct {
 }
 
 func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
-	// Populate fields of stack (except node type)
+	// Populate fields of stack
 	stack.NodeType = nodeType
-	for i := 0; i < 5; i++ {
-		fmt.Println("Iteration:", i)
-	}
 
-	// Go through each interface to populate list of interfaces for IPStack struct
+	// Go through each interface to populate map of interfaces for IPStack struct
 	for lnxInterface := range configInfo.Interfaces {
 		newInterface := Interface{
 			Name:   lnxInterface.Name,
@@ -57,16 +54,21 @@ func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
 			Udp:    lnxInterface.UDPAddr,
 			Down:   false,
 		}
+
+		// creating udp conn for each interface
 		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr)
 		if err != nil {
 			fmt.Println(err)
+			return err
 		}
 		conn, err := net.DialUDP("udp4", nil, serverAddr)
 		if err != nil {
 			fmt.Println(err)
+			return err
 		}
 		newInterface.Conn = conn
-		// Map interface name to interface struct
+		
+		// Map interface name to interface struct - TODO maybe change this map key
 		stack.Interfaces[newInterface.Name] = &newInterface
 	}
 
