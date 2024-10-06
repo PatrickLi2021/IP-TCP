@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"ip-ip-pa/lnxconfig/lnxconfig"
+	"github.com/google/netstack/tcpip/header"
+	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
 	"sync"
@@ -11,25 +12,19 @@ import (
 
 type HandlerFunc = func(*IPPacket, []interface{})
 
-type Node int
-
-const (
-	Router = 0
-	Host   = 1
-)
-
 type IPPacket struct {
 	Header  ipv4header.IPv4Header
 	Payload []byte
 }
 
 type Interface struct {
-	Name   string       // the name of the interface
-	IP     netip.Addr   // the IP address of the interface on this host
-	Prefix netip.Prefix // the network submask/prefix
-	Udp    net.UDPAddr  // the UDP address of the interface on this host
-	Down   bool         // whether the interface is down or not
-	Conn   *net.UDPConn // listen to incoming UDP packets
+	Name      string                // the name of the interface
+	IP        netip.Addr            // the IP address of the interface on this host
+	Prefix    netip.Prefix          // the network submask/prefix
+	Neighbors map[netip.Addr]string // maps (virtual) IPs to interface name
+	Udp       netip.AddrPort        // the UDP address of the interface on this host
+	Down      bool                  // whether the interface is down or not
+	Conn      *net.UDPConn          // listen to incoming UDP packets
 }
 
 type costInterfacePair struct {
@@ -38,21 +33,19 @@ type costInterfacePair struct {
 }
 
 type IPStack struct {
-	NodeType      Node
+	RoutingType   lnxconfig.RoutingMode
 	Forward_table map[netip.Prefix]*costInterfacePair // maps IP prefixes to cost-interface pair
 	Handler_table map[int]HandlerFunc                 // maps protocol numbers to handlers
-	Neighbors     map[netip.Addr]Interface            // maps (virtual) IPs to Interfaces
 	Interfaces    map[string]*Interface               // maps interface names to interfaces
-	Ip            netip.Addr                          // the IP address of this node
 	Mutex         sync.Mutex                          // for concurrency
 }
 
-func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
+func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// Populate fields of stack
-	stack.NodeType = nodeType
+	stack.RoutingType = configInfo.RoutingMode
 
 	// Go through each interface to populate map of interfaces for IPStack struct
-	for lnxInterface := range configInfo.Interfaces {
+	for _, lnxInterface := range configInfo.Interfaces {
 		newInterface := Interface{
 			Name:   lnxInterface.Name,
 			IP:     lnxInterface.AssignedIP,
@@ -62,7 +55,7 @@ func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
 		}
 
 		// creating udp conn for each interface
-		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr)
+		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr.String())
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -80,11 +73,74 @@ func (stack *IPStack) Initialize(configInfo IpConfig, nodeType Node) error {
 
 	// Go through each neighbor and populate a list of neighbors for IPStack struct
 	interfaceNeighbors := []*Interface{}
-	for neighbor := range configInfo.Neighbors {
+	for _, neighbor := range configInfo.Neighbors {
 		_, exists := stack.Interfaces[neighbor.InterfaceName]
 		if exists {
-			interfaceNeighbors = append(interfaceNeighbors, stack.Interfaces[neighbor.interfaceName])
+			interfaceNeighbors = append(interfaceNeighbors, stack.Interfaces[neighbor.InterfaceName])
 		}
 	}
+	return nil
+}
 
+func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) error {
+	header := ipv4header.IPv4Header{
+		Version:  4,
+		Len:      20, // Header length is always 20 when no IP options
+		TOS:      0,
+		TotalLen: ipv4header.HeaderLen + len(data),
+		ID:       0,
+		Flags:    0,
+		FragOff:  0,
+		TTL:      16,
+		Protocol: int(protocolNum),
+		Checksum: 0, // Should be 0 until checksum is computed
+		Src:      netip.MustParseAddr("10.0.0.1"),
+		Dst:      dest,
+		Options:  []byte{},
+	}
+	headerBytes, err := header.Marshal()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	header.Checksum = int(ComputeChecksum(headerBytes)) + 1
+	headerBytes, err = header.Marshal()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
+	bytesToSend = append(bytesToSend, headerBytes...)
+	bytesToSend = append(bytesToSend, []byte(data)...)
+
+	dest_ip := findPrefixMatch(stack.Forward_table, header.Dst)
+	bindLocalAddr, err := net.ResolveUDPAddr("udp4", dest_ip.Addr().String()+dest_ip)
+	if err != nil {
+		log.Panicln("Error resolving address:  ", err)
+	}
+
+	bytesWritten, err := conn.WriteToUDP(bytesToSend, remoteAddr)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Printf("Sent %d bytes\n", bytesWritten)
+
+}
+
+func ComputeChecksum(headerBytes []byte) uint16 {
+	checksum := header.Checksum(headerBytes, 0)
+	checksumInv := checksum ^ 0xffff
+	return checksumInv
+}
+
+func findPrefixMatch(forward_table map[netip.Prefix]*costInterfacePair, addr netip.Addr) netip.Prefix {
+	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
+	for pref := range forward_table {
+		if pref.Contains(addr) {
+			if pref.IsValid() || pref.Bits() > longestMatch.Bits() {
+				longestMatch = pref
+			}
+		}
+	}
+	return longestMatch
 }
