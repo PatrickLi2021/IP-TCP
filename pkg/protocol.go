@@ -7,6 +7,7 @@ import (
 	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 )
 
@@ -83,6 +84,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 }
 
 func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) error {
+	// Construct IP packet header
 	header := ipv4header.IPv4Header{
 		Version:  4,
 		Len:      20, // Header length is always 20 when no IP options
@@ -103,28 +105,44 @@ func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) e
 		fmt.Println(err)
 		return err
 	}
+	// Compute header checksum
 	header.Checksum = int(ComputeChecksum(headerBytes)) + 1
 	headerBytes, err = header.Marshal()
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
+	// Construct all bytes of the IP packet
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
 
-	dest_ip := findPrefixMatch(stack.Forward_table, header.Dst)
-	bindLocalAddr, err := net.ResolveUDPAddr("udp4", dest_ip.Addr().String()+dest_ip)
+	// Find longest prefix match
+	dest_interface := findPrefixMatch(stack.Forward_table, header.Dst)
+	remote_addr, err := net.ResolveUDPAddr("udp4", dest_interface.Udp.String())
 	if err != nil {
-		log.Panicln("Error resolving address:  ", err)
+		fmt.Println(err)
 	}
 
-	bytesWritten, err := conn.WriteToUDP(bytesToSend, remoteAddr)
+	bytesWritten, err := dest_interface.Conn.WriteToUDP(bytesToSend, remote_addr)
 	if err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("Sent %d bytes\n", bytesWritten)
 
+}
+
+func (stack *IPStack) Receive(packet *IPPacket) {
+	// Check if packet was destined for this node by going through all interfaces on this node
+	for _, iface := range stack.Interfaces {
+		if iface.IP == dest {
+			if packet.Header.Protocol == 0 {
+				if callbackFunction, exists := stack.Handler_table[0]; exists {
+					callbackFunction()
+				}
+			}
+		}
+	}
 }
 
 func ComputeChecksum(headerBytes []byte) uint16 {
@@ -133,14 +151,27 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 	return checksumInv
 }
 
-func findPrefixMatch(forward_table map[netip.Prefix]*costInterfacePair, addr netip.Addr) netip.Prefix {
+func findPrefixMatch(forward_table map[netip.Prefix]*costInterfacePair, addr netip.Addr) *Interface {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
-	for pref := range forward_table {
+	var dest_interface *Interface
+	for pref, costInterfacePair := range forward_table {
 		if pref.Contains(addr) {
 			if pref.IsValid() || pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
+				dest_interface = costInterfacePair.Interface
 			}
 		}
 	}
-	return longestMatch
+	return dest_interface
+}
+
+func (stack *IPStack) TestPacketHandler(packet *IPPacket) {
+	fmt.Println("Received test packet: Src: " + packet.Header.Src.String() +
+		", Dst: " + packet.Header.Dst.String() +
+		", TTL: " + strconv.Itoa(packet.Header.TTL) +
+		", Data: " + string(packet.Payload))
+}
+
+func RIPPacketHandler() {
+
 }
