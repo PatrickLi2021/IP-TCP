@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
 	"github.com/google/netstack/tcpip/header"
@@ -11,27 +12,27 @@ import (
 	"sync"
 )
 
-type HandlerFunc = func(*IPPacket, []interface{})
-
 type IPPacket struct {
 	Header  ipv4header.IPv4Header
 	Payload []byte
 }
 
 type Interface struct {
-	Name      string                // the name of the interface
-	IP        netip.Addr            // the IP address of the interface on this host
-	Prefix    netip.Prefix          // the network submask/prefix
-	Neighbors map[netip.Addr]string // maps (virtual) IPs to interface name
-	Udp       netip.AddrPort        // the UDP address of the interface on this host
-	Down      bool                  // whether the interface is down or not
-	Conn      *net.UDPConn          // listen to incoming UDP packets
+	Name      string                        // the name of the interface
+	IP        netip.Addr                    // the IP address of the interface on this host
+	Prefix    netip.Prefix                  // the network submask/prefix
+	Neighbors map[netip.Addr]netip.AddrPort // maps (virtual) IPs to UDP port
+	Udp       netip.AddrPort                // the UDP address/port of the interface on this host
+	Down      bool                          // whether the interface is down or not
+	Conn      *net.UDPConn                  // listen to incoming UDP packets
 }
 
 type costInterfacePair struct {
 	Interface *Interface
 	cost      uint16
 }
+
+type HandlerFunc = func(*IPPacket)
 
 type IPStack struct {
 	RoutingType   lnxconfig.RoutingMode
@@ -55,8 +56,8 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			Down:   false,
 		}
 
-		// creating udp conn for each interface
-		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr.String())
+		// Creating UDP conn for each interface
+		serverAddr, err := net.ResolveUDPAddr("udp4", newInterface.Udp.String())
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -70,17 +71,15 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 
 		// Map interface name to interface struct - TODO maybe change this map key
 		stack.Interfaces[newInterface.Name] = &newInterface
-	}
-
-	// Go through each neighbor and populate a list of neighbors for IPStack struct
-	interfaceNeighbors := []*Interface{}
-	for _, neighbor := range configInfo.Neighbors {
-		_, exists := stack.Interfaces[neighbor.InterfaceName]
-		if exists {
-			interfaceNeighbors = append(interfaceNeighbors, stack.Interfaces[neighbor.InterfaceName])
+		interfaceNeighbors := make(map[netip.Addr]netip.AddrPort)
+		for _, neighbor := range configInfo.Neighbors {
+			// This is saying "I can reach this neighbor through this interface lnxInterface"
+			if neighbor.InterfaceName == lnxInterface.Name {
+				interfaceNeighbors[lnxInterface.AssignedIP] = neighbor.UDPAddr
+			}
 		}
+		newInterface.Neighbors = interfaceNeighbors
 	}
-	return nil
 }
 
 func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) error {
@@ -129,20 +128,48 @@ func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) e
 		fmt.Println(err)
 	}
 	fmt.Printf("Sent %d bytes\n", bytesWritten)
-
+	return nil
 }
 
-func (stack *IPStack) Receive(packet *IPPacket) {
-	// Check if packet was destined for this node by going through all interfaces on this node
+func (stack *IPStack) Receive(packet *IPPacket) error {
+	// Decrement TTL by 1 and recompute checksum
+	packet.Header.TTL -= 1
+	headerBytes, err := packet.Header.Marshal()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	recomputedChecksum := ComputeChecksum(headerBytes)
+	if recomputedChecksum != uint16(packet.Header.Checksum) {
+		return errors.New("Invalid packet, malformed checksum")
+	}
+	// If the packet is local, we look up the IP in the interface's neighbor table
+	// and look it up there (send it to that neighbor's UDP port. This is in the config file)
+	// Check if packet was destined for this node by going through all interfaces and neighbors on this node
 	for _, iface := range stack.Interfaces {
-		if iface.IP == dest {
+		if iface.IP == packet.Header.Dst {
 			if packet.Header.Protocol == 0 {
 				if callbackFunction, exists := stack.Handler_table[0]; exists {
-					callbackFunction()
+					callbackFunction(packet)
+					return nil
+				}
+			}
+		} else {
+			for neighbor_ip, _ := range iface.Neighbors {
+				if neighbor_ip == packet.Header.Dst {
+					if packet.Header.Protocol == 0 {
+						if callbackFunction, exists := stack.Handler_table[0]; exists {
+							callbackFunction(packet)
+							return nil
+						}
+					}
 				}
 			}
 		}
 	}
+	// Packet was unable to be delivered locally, so it needs to be forwarded to the next hop destination
+	stack.SendIP(packet.Header.Dst, uint16(packet.Header.Protocol), packet.Payload)
+	return nil
 }
 
 func ComputeChecksum(headerBytes []byte) uint16 {
