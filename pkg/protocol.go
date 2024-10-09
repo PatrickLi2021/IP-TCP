@@ -28,16 +28,17 @@ type Interface struct {
 	Conn      *net.UDPConn                  // listen to incoming UDP packets
 }
 
-type costInterfacePair struct {
-	Interface *Interface
+type ipCostInterfaceTuple struct {
+	ip netip.Addr
 	cost      uint16
+	Interface *Interface
 }
 
 type HandlerFunc = func(*IPPacket)
 
 type IPStack struct {
 	RoutingType   lnxconfig.RoutingMode
-	Forward_table map[netip.Prefix]*costInterfacePair // maps IP prefixes to cost-interface pair
+	Forward_table map[netip.Prefix]*ipCostInterfaceTuple // maps IP prefixes to ip-cost-interface tuple
 	Handler_table map[uint16]HandlerFunc                 // maps protocol numbers to handlers
 	Interfaces    map[string]*Interface               // maps interface names to interfaces
 	Mutex         sync.Mutex                          // for concurrency
@@ -46,7 +47,7 @@ type IPStack struct {
 func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// Populate fields of stack
 	stack.RoutingType = configInfo.RoutingMode
-	stack.Forward_table = make(map[netip.Prefix]*costInterfacePair)
+	stack.Forward_table = make(map[netip.Prefix]*ipCostInterfaceTuple)
 	stack.Handler_table = make(map[uint16]HandlerFunc)              
 	stack.Interfaces = make(map[string]*Interface)               
 	stack.Mutex = sync.Mutex{}
@@ -138,18 +139,27 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 	return nil
 }
 
-func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
+func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
-	var dest_interface *Interface
-	for pref, costInterfacePair := range stack.Forward_table {
+	var bestTuple *ipCostInterfaceTuple
+
+	for pref, tuple := range stack.Forward_table {
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
-				dest_interface = costInterfacePair.Interface
+				bestTuple = tuple
 			}
 		}
 	}
-	return dest_interface
+
+	// check tuple to see if we hit deafult case and need to re-look up ip in forwarding table
+	if (bestTuple.Interface != nil) {
+		return bestTuple
+	} else {
+		// hit default case, keep looking
+		return stack.findPrefixMatch(bestTuple.ip)
+	}
+	
 }
 
 func (stack *IPStack) Receive(packet *IPPacket) error {
