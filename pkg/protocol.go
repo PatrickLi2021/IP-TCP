@@ -91,7 +91,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	return nil
 }
 
-func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum int, dest netip.Addr, protocolNum uint16, data []byte) error {
+func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Construct IP packet header
 	header := ipv4header.IPv4Header{
 		Version:  4,
@@ -103,7 +103,7 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum int, dest
 		FragOff:  0,
 		TTL:      prevTTL-1,
 		Protocol: int(protocolNum),
-		Checksum: prevChecksum, // Should be 0 until checksum is computed
+		Checksum: int(prevChecksum), // Should be 0 until checksum is computed
 		Src:      src,
 		Dst:      dest,
 		Options:  []byte{},
@@ -114,7 +114,7 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum int, dest
 		return err
 	}
 	// Compute header checksum
-	header.Checksum = int(ComputeChecksum(headerBytes)) + 1
+	header.Checksum = int(ComputeChecksum(headerBytes, prevChecksum))
 	headerBytes, err = header.Marshal()
 	if err != nil {
 		fmt.Println(err)
@@ -187,12 +187,12 @@ func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
 	return checksumInv
 }
 
-func findPrefixMatch(forward_table map[netip.Prefix]*costInterfacePair, addr netip.Addr) *Interface {
+func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var dest_interface *Interface
-	for pref, costInterfacePair := range forward_table {
+	for pref, costInterfacePair := range stack.Forward_table {
 		if pref.Contains(addr) {
-			if pref.IsValid() || pref.Bits() > longestMatch.Bits() {
+			if pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
 				dest_interface = costInterfacePair.Interface
 			}
