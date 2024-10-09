@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
 	"net"
@@ -12,6 +11,8 @@ import (
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
 	"github.com/google/netstack/tcpip/header"
 )
+
+const MAX_PACKET_SIZE = 1400
 
 type IPPacket struct {
 	Header  ipv4header.IPv4Header
@@ -68,7 +69,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			fmt.Println(err)
 			return err
 		}
-		conn, err := net.DialUDP("udp4", nil, serverAddr)
+		conn, err := net.ListenUDP("udp4", serverAddr)
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -139,6 +140,12 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 	return nil
 }
 
+func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
+	checksum := header.Checksum(headerBytes, prevChecksum)
+	checksumInv := checksum ^ 0xffff
+	return checksumInv
+}
+
 func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple
@@ -159,54 +166,93 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 		// hit default case, keep looking
 		return stack.findPrefixMatch(bestTuple.ip)
 	}
-	
 }
 
-func (stack *IPStack) Receive(packet *IPPacket) error {
-	// Decrement TTL by 1 and recompute checksum
-	packet.Header.TTL -= 1
-	headerBytes, err := packet.Header.Marshal()
-	if err != nil {
+
+
+func (stack *IPStack) Receive(iface *Interface) error {
+	buffer := make([]byte, MAX_PACKET_SIZE)
+	_, _, err := iface.Conn.ReadFromUDP(buffer)
+	if (err != nil) {
 		fmt.Println(err)
 		return err
 	}
-	recomputedChecksum := ComputeChecksum(headerBytes)
-	if recomputedChecksum != uint16(packet.Header.Checksum) {
-		return errors.New("Invalid packet, malformed checksum")
+
+	hdr, err := ipv4header.ParseHeader(buffer)
+	if (err != nil) {
+		fmt.Println("Error parsing header", err)
+		return nil // TODO? what to do? node should not crash or exit, instead just drop message and return to processing
 	}
-	// If the packet is local, we look up the IP in the interface's neighbor table
-	// and look it up there (send it to that neighbor's UDP port. This is in the config file)
-	// Check if packet was destined for this node by going through all interfaces and neighbors on this node
-	for _, iface := range stack.Interfaces {
-		if iface.IP == packet.Header.Dst {
-			if packet.Header.Protocol == 0 {
-				if callbackFunction, exists := stack.Handler_table[0]; exists {
-					callbackFunction(packet)
-					return nil
-				}
+
+	hdrSize := hdr.Len
+
+	// validate checksum
+	hdrBytes := buffer[:hdrSize]
+	checksumFromHeader := uint16(hdr.Checksum)
+	computedChecksum := header.Checksum(hdrBytes, checksumFromHeader)
+	if (computedChecksum != checksumFromHeader) {
+		// if checksum invalid, drop packet and return
+		fmt.Println("Error validating checksum in packet header")
+		return nil
+	}
+
+	// packet payload
+	message := buffer[hdrSize:]
+
+	// check packet's dest ip
+	if (hdr.Dst == iface.IP) {
+		// packet has reached destination
+
+		// create packet to pass into callback
+		packet := &IPPacket{
+			Header : *hdr,
+			Payload : message,
+		}
+		// calling callback
+		stack.Handler_table[uint16(hdr.Protocol)](packet)
+	} else {
+		// packet has NOT reached dest yet
+
+		// check TTL is still valid
+		if (hdr.TTL <= 0) {
+			// TTL invalid, drop packet
+			return nil
+		}
+
+		value, exists := iface.Neighbors[hdr.Dst]
+		if (exists) {
+			// if packet destination is interface's neighbor, can send directly through UDP
+			udpAddr := &net.UDPAddr{
+				IP: net.IP(value.Addr().AsSlice()),
+				Port: int(value.Port()),
+			}
+
+			// decrement TTL and recompute checksum
+			hdr.TTL = hdr.TTL - 1
+			hdr.Checksum = int(ComputeChecksum(hdrBytes, uint16(hdr.Checksum)))
+			hdrBytes, err = hdr.Marshal()
+			if (err != nil) {
+				fmt.Println(err)
+				return nil
+			}
+
+			buffer := make([]byte, 0, len(hdrBytes)+len(message))
+			buffer = append(buffer, hdrBytes...)
+			buffer = append(buffer, []byte(message)...)
+			
+			// write packet with new header to neighbor
+			_, err := iface.Conn.WriteToUDP(buffer, udpAddr)
+			if (err != nil) {
+				fmt.Println(err)
+				return err
 			}
 		} else {
-			for neighbor_ip, _ := range iface.Neighbors {
-				if neighbor_ip == packet.Header.Dst {
-					if packet.Header.Protocol == 0 {
-						if callbackFunction, exists := stack.Handler_table[0]; exists {
-							callbackFunction(packet)
-							return nil
-						}
-					}
-				}
-			}
+			// dest is not one of interface's neighbors
+			// call sendIP again
+			return stack.SendIP(hdr.Src, hdr.TTL, uint16(hdr.Checksum), hdr.Dst, uint16(hdr.Protocol), message)
 		}
 	}
-	// Packet was unable to be delivered locally, so it needs to be forwarded to the next hop destination
-	stack.SendIP(packet.Header.Dst, uint16(packet.Header.Protocol), packet.Payload)
 	return nil
-}
-
-func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
-	checksum := header.Checksum(headerBytes, prevChecksum)
-	checksumInv := checksum ^ 0xffff
-	return checksumInv
 }
 
 func (stack *IPStack) TestPacketHandler(packet *IPPacket) {
