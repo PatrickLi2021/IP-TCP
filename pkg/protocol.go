@@ -128,9 +128,9 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 	bytesToSend = append(bytesToSend, []byte(data)...)
 
 	// Find longest prefix match
-	dest_interface := stack.findPrefixMatch(header.Dst)
+	destInterface := stack.findPrefixMatch(header.Dst).Interface
 
-	bytesWritten, err := dest_interface.Conn.WriteToUDP(bytesToSend, dest_interface.Udp)
+	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
 	if err != nil {
 		fmt.Println(err)
 		return err
