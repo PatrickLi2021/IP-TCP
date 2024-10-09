@@ -91,7 +91,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	return nil
 }
 
-func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) error {
+func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Construct IP packet header
 	header := ipv4header.IPv4Header{
 		Version:  4,
@@ -101,10 +101,10 @@ func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) e
 		ID:       0,
 		Flags:    0,
 		FragOff:  0,
-		TTL:      16,
+		TTL:      prevTTL-1,
 		Protocol: int(protocolNum),
-		Checksum: 0, // Should be 0 until checksum is computed
-		Src:      netip.MustParseAddr("10.0.0.1"),
+		Checksum: prevChecksum, // Should be 0 until checksum is computed
+		Src:      src,
 		Dst:      dest,
 		Options:  []byte{},
 	}
@@ -181,8 +181,8 @@ func (stack *IPStack) Receive(packet *IPPacket) error {
 	return nil
 }
 
-func ComputeChecksum(headerBytes []byte) uint16 {
-	checksum := header.Checksum(headerBytes, 0)
+func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
+	checksum := header.Checksum(headerBytes, prevChecksum)
 	checksumInv := checksum ^ 0xffff
 	return checksumInv
 }
@@ -209,7 +209,6 @@ func (stack *IPStack) TestPacketHandler(packet *IPPacket) {
 }
 
 func RIPPacketHandler() {
-
 }
 
 func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) {
