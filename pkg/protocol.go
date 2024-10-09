@@ -69,17 +69,20 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 		newInterface.Conn = conn
 
-		// Map interface name to interface struct - TODO maybe change this map key
+		// Map interface name to interface struct for ip stack struct- TODO maybe change this map key
 		stack.Interfaces[newInterface.Name] = &newInterface
-		interfaceNeighbors := make(map[netip.Addr]netip.AddrPort)
-		for _, neighbor := range configInfo.Neighbors {
-			// This is saying "I can reach this neighbor through this interface lnxInterface"
-			if neighbor.InterfaceName == lnxInterface.Name {
-				interfaceNeighbors[lnxInterface.AssignedIP] = neighbor.UDPAddr
-			}
-		}
-		newInterface.Neighbors = interfaceNeighbors
+
+		// new neighbors map for new interface
+		newInterface.Neighbors = make(map[netip.Addr]netip.AddrPort)
 	}
+
+	// for all the node's neighbors, loop through and add to correct interfaces map:
+	for _, neighbor := range configInfo.Neighbors {
+		// This is saying "I can reach this neighbor through this interface lnxInterface"
+		interface_struct := stack.Interfaces[neighbor.InterfaceName]
+		interface_struct.Neighbors[neighbor.DestAddr] = neighbor.UDPAddr	
+	}
+	return nil
 }
 
 func (stack *IPStack) SendIP(dest netip.Addr, protocolNum uint16, data []byte) error {
