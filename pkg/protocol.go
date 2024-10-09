@@ -212,7 +212,6 @@ func RIPPacketHandler() {
 
 }
 
-func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) error {
+func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) {
 	stack.Handler_table[protocolNum] = callbackFunc
-	return nil
 }
