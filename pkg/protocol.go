@@ -3,13 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
-	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"github.com/google/netstack/tcpip/header"
 	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
 	"strconv"
 	"sync"
+
+	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"github.com/google/netstack/tcpip/header"
 )
 
 type IPPacket struct {
@@ -37,7 +38,7 @@ type HandlerFunc = func(*IPPacket)
 type IPStack struct {
 	RoutingType   lnxconfig.RoutingMode
 	Forward_table map[netip.Prefix]*costInterfacePair // maps IP prefixes to cost-interface pair
-	Handler_table map[int]HandlerFunc                 // maps protocol numbers to handlers
+	Handler_table map[uint16]HandlerFunc                 // maps protocol numbers to handlers
 	Interfaces    map[string]*Interface               // maps interface names to interfaces
 	Mutex         sync.Mutex                          // for concurrency
 }
@@ -45,9 +46,14 @@ type IPStack struct {
 func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// Populate fields of stack
 	stack.RoutingType = configInfo.RoutingMode
+	stack.Forward_table = make(map[netip.Prefix]*costInterfacePair)
+	stack.Handler_table = make(map[uint16]HandlerFunc)              
+	stack.Interfaces = make(map[string]*Interface)               
+	stack.Mutex = sync.Mutex{}
 
-	// Go through each interface to populate map of interfaces for IPStack struct
+	// create interfaces to populate map of interfaces for IPStack struct
 	for _, lnxInterface := range configInfo.Interfaces {
+		// one new interface
 		newInterface := Interface{
 			Name:   lnxInterface.Name,
 			IP:     lnxInterface.AssignedIP,
@@ -204,4 +210,8 @@ func (stack *IPStack) TestPacketHandler(packet *IPPacket) {
 
 func RIPPacketHandler() {
 
+}
+
+func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) error {
+	stack.Handler_table[protocolNum] = callbackFunc
 }
