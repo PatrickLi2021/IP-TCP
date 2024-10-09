@@ -23,7 +23,7 @@ type Interface struct {
 	IP        netip.Addr                    // the IP address of the interface on this host
 	Prefix    netip.Prefix                  // the network submask/prefix
 	Neighbors map[netip.Addr]netip.AddrPort // maps (virtual) IPs to UDP port
-	Udp       netip.AddrPort                // the UDP address/port of the interface on this host
+	Udp       *net.UDPAddr                 // the UDP address of the interface on this host
 	Down      bool                          // whether the interface is down or not
 	Conn      *net.UDPConn                  // listen to incoming UDP packets
 }
@@ -58,7 +58,6 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			Name:   lnxInterface.Name,
 			IP:     lnxInterface.AssignedIP,
 			Prefix: lnxInterface.AssignedPrefix,
-			Udp:    lnxInterface.UDPAddr,
 			Down:   false,
 		}
 
@@ -73,6 +72,8 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			fmt.Println(err)
 			return err
 		}
+		// add udp addr and conn to interface struct
+		newInterface.Udp = serverAddr
 		newInterface.Conn = conn
 
 		// Map interface name to interface struct for ip stack struct- TODO maybe change this map key
@@ -126,18 +127,29 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 	bytesToSend = append(bytesToSend, []byte(data)...)
 
 	// Find longest prefix match
-	dest_interface := findPrefixMatch(stack.Forward_table, header.Dst)
-	remote_addr, err := net.ResolveUDPAddr("udp4", dest_interface.Udp.String())
-	if err != nil {
-		fmt.Println(err)
-	}
+	dest_interface := stack.findPrefixMatch(header.Dst)
 
-	bytesWritten, err := dest_interface.Conn.WriteToUDP(bytesToSend, remote_addr)
+	bytesWritten, err := dest_interface.Conn.WriteToUDP(bytesToSend, dest_interface.Udp)
 	if err != nil {
 		fmt.Println(err)
+		return err
 	}
 	fmt.Printf("Sent %d bytes\n", bytesWritten)
 	return nil
+}
+
+func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
+	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
+	var dest_interface *Interface
+	for pref, costInterfacePair := range stack.Forward_table {
+		if pref.Contains(addr) {
+			if pref.Bits() > longestMatch.Bits() {
+				longestMatch = pref
+				dest_interface = costInterfacePair.Interface
+			}
+		}
+	}
+	return dest_interface
 }
 
 func (stack *IPStack) Receive(packet *IPPacket) error {
@@ -185,20 +197,6 @@ func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
 	checksum := header.Checksum(headerBytes, prevChecksum)
 	checksumInv := checksum ^ 0xffff
 	return checksumInv
-}
-
-func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
-	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
-	var dest_interface *Interface
-	for pref, costInterfacePair := range stack.Forward_table {
-		if pref.Contains(addr) {
-			if pref.Bits() > longestMatch.Bits() {
-				longestMatch = pref
-				dest_interface = costInterfacePair.Interface
-			}
-		}
-	}
-	return dest_interface
 }
 
 func (stack *IPStack) TestPacketHandler(packet *IPPacket) {
