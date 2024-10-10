@@ -10,36 +10,51 @@ import (
 
 const max_packet_size = 1400
 
-func listen(host *protocol.IPStack) {
+func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	// Since this is a host, we only listen on one interface
-	interface_port := host.interfaces[0].Udp
-	addr, err := net.ResolveUDPAddr("udp4", interface_port)
-	if err != nil {
-		log.Panicln("Error resolving address:  ", err)
-	}
-	conn, err := net.ListenUDP("udp4", addr)
-	if err != nil {
-		fmt.Println("Error creating connection")
-		return
-	}
-	packetBuffer := make([]byte, max_packet_size)
-	n, _, err := conn.ReadFromUDP(packetBuffer)
-	if n > 0 {
-		host.Receive()
+	for {
+		stack.Receive(stack.Interfaces[iface.Name])
 	}
 
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) != 2 {
 		fmt.Println("Usage: ./vhost --config <lnx file>")
 		return
 	}
 	lnx_file := os.Args[1]
 
 	// Create a new host node
-	var host protocol.IPStack
-	host.Initialize(lnx_file)
-	go listen(host)
+	var stack protocol.IPStack
+	stack.Initialize(lnx_file)
+	for iface := range stack.Interfaces {
+		go listen(stack, iface)
+	}
+
+	for {
+		// REPL
+		var userInput string
+		fmt.Scanln(&userInput)
+
+		if (userInput == "li") {
+			fmt.Println(stack.Li())
+		} else if (userInput == "ln") {
+			fmt.Println(stack.Ln())
+		} else if (userInput == "lr") {
+			// TODO
+		} else if (userInput == "down") {
+			stack.Down()
+			// TODO - iface name
+		} else if (userInput == "up") {
+			// TODO - iface name
+		} else if (userInput == "send") {
+			// TODO - get send fields
+			stack.SendIP()
+		} else {
+			fmt.Println("Invalid command.")
+			os.Exit(0)
+		}
+	}
 
 }

@@ -130,6 +130,10 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 
 	// Find longest prefix match
 	destInterface := stack.findPrefixMatch(header.Dst).Interface
+	if (destInterface == nil) {
+		// no match found, drop packet
+		return nil
+	}
 
 	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
 	if err != nil {
@@ -159,11 +163,17 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 		}
 	}
 
+	if (longestMatch.Bits() <= 0) {
+		// no match found, drop packet
+		return nil
+	}
+
 	// check tuple to see if we hit deafult case and need to re-look up ip in forwarding table
 	if (bestTuple.Interface != nil) {
 		return bestTuple
 	} else {
 		// hit default case, keep looking
+		// TODO - feel like doing this wrong
 		return stack.findPrefixMatch(bestTuple.ip)
 	}
 }
@@ -268,3 +278,48 @@ func RIPPacketHandler() {
 func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) {
 	stack.Handler_table[protocolNum] = callbackFunc
 }
+
+
+// REPL commands
+// func (stack *IPStack) Li() string {
+// 	var res = "Name Addr/Prefix State"
+// 	for ifaceName, iface := range stack.Interfaces {
+// 		res += "\n" + ifaceName + " " + iface.Prefix.String() 
+// 		if (iface.Down) {
+// 			res += " down"
+// 		} else {
+// 			res += " up"
+// 		}
+// 	}
+// 	return res
+// }
+
+// func (stack *IPStack) Ln() string {
+// 	var res = "Iface VIP UDPAddr"
+// 	for ifaceName, iface := range stack.Interfaces {
+// 		if (iface.Down) {
+// 			continue
+// 		} else {
+// 			for neighborIp, neighborAddrPort := range iface.Neighbors {
+// 				res += "\n" + ifaceName + " " + neighborIp.String() + " " + neighborAddrPort.String()
+// 			}
+// 		}
+// 	}
+// 	return res
+// }
+
+// func (stack *IPStack) Lr() string {
+// 	return ""
+// 	// TODO
+// }
+
+// func (stack *IPStack) Down() error {
+// 	return nil
+// 	// TODO
+// }
+
+// func (stack *IPStack) Down() error {
+// 	return nil
+// 	// TODO
+// }
+
