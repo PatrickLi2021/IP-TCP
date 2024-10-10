@@ -144,6 +144,58 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 	return nil
 }
 
+// func (stack *IPStack) SendIP(dst netip.Addr, protocolNum uint8, data []byte) (error) {
+// 	// Find longest prefix match
+// 	destInterface := stack.findPrefixMatch(dst).Interface
+// 	if destInterface == nil {
+// 		// no match found, drop packet
+// 		return nil
+// 	}
+
+// 	// Construct IP packet header
+// 	header := ipv4header.IPv4Header{
+// 		Version:  4,
+// 		Len:      20, // Header length is always 20 when no IP options
+// 		TOS:      0,
+// 		TotalLen: ipv4header.HeaderLen + len(data),
+// 		ID:       0,
+// 		Flags:    0,
+// 		FragOff:  0,
+// 		TTL:      prevTTL - 1,
+// 		Protocol: int(protocolNum),
+// 		Checksum: int(prevChecksum), // Should be 0 until checksum is computed
+// 		Src:      src,
+// 		Dst:      dest,
+// 		Options:  []byte{},
+// 	}
+// 	headerBytes, err := header.Marshal()
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return err
+// 	}
+// 	// Compute header checksum
+// 	header.Checksum = int(ComputeChecksum(headerBytes, prevChecksum))
+// 	headerBytes, err = header.Marshal()
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return err
+// 	}
+
+
+// 	// Construct all bytes of the IP packet
+// 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
+// 	bytesToSend = append(bytesToSend, headerBytes...)
+// 	bytesToSend = append(bytesToSend, []byte(data)...)
+
+// 	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return err
+// 	}
+// 	fmt.Printf("Sent %d bytes\n", bytesWritten)
+// 	return nil
+// }
+
 func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
 	checksum := header.Checksum(headerBytes, prevChecksum)
 	checksumInv := checksum ^ 0xffff
