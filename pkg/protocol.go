@@ -64,7 +64,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 
 		// Creating UDP conn for each interface
-		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.AssignedIP.String())
+		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr.String())
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -111,11 +111,13 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 		Dst:      dest,
 		Options:  []byte{},
 	}
+	fmt.Println("Finished constructing packet")
 	headerBytes, err := header.Marshal()
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
+	fmt.Println("Finished marshaling packet")
 	// Compute header checksum
 	header.Checksum = int(ComputeChecksum(headerBytes, prevChecksum))
 	headerBytes, err = header.Marshal()
@@ -123,10 +125,12 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 		fmt.Println(err)
 		return err
 	}
+	fmt.Println("Finished computing checksum")
 	// Construct all bytes of the IP packet
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
+	fmt.Println("Finished constructing bytes to send")
 
 	// Find longest prefix match
 	destInterface := stack.findPrefixMatch(header.Dst).Interface
@@ -134,12 +138,13 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 		// no match found, drop packet
 		return nil
 	}
-
+	fmt.Println("finished finding prefix match")
 	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
+	fmt.Println("finished writing to UDP")
 	fmt.Printf("Sent %d bytes\n", bytesWritten)
 	return nil
 }
