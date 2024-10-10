@@ -2,9 +2,8 @@ package main
 
 import (
 	"fmt"
-	"ip-ip-pa/pkg/protocol"
-	"log"
-	"net"
+	"ip-ip-pa/lnxconfig"
+	"ip-ip-pa/pkg"
 	"os"
 )
 
@@ -23,12 +22,17 @@ func main() {
 		fmt.Println("Usage: ./vhost --config <lnx file>")
 		return
 	}
-	lnx_file := os.Args[1]
+	lnxFile := os.Args[1]
 
+	// Parse the lnx file
+	lnxConfig, err := lnxconfig.ParseConfig(lnxFile)
+	if err != nil {
+		panic(err)
+	}
 	// Create a new host node
-	var stack protocol.IPStack
-	stack.Initialize(lnx_file)
-	for iface := range stack.Interfaces {
+	var stack *protocol.IPStack
+	stack.Initialize(*lnxConfig)
+	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)
 	}
 
@@ -37,20 +41,33 @@ func main() {
 		var userInput string
 		fmt.Scanln(&userInput)
 
-		if (userInput == "li") {
+		if userInput == "li" {
 			fmt.Println(stack.Li())
-		} else if (userInput == "ln") {
+		} else if userInput == "ln" {
 			fmt.Println(stack.Ln())
-		} else if (userInput == "lr") {
+		} else if userInput == "lr" {
 			// TODO
-		} else if (userInput == "down") {
+		} else if userInput == "down" {
 			stack.Down()
 			// TODO - iface name
-		} else if (userInput == "up") {
+		} else if userInput == "up" {
 			// TODO - iface name
-		} else if (userInput == "send") {
-			// TODO - get send fields
-			stack.SendIP()
+		} else if userInput[0:4] == "send" {
+			var spaceIdx = strings.Index(userInput[5:], " ")
+			var ip = userInput[5:spaceIdx]
+			var message = userInput[spaceIdx+1:]
+
+			// Host will only have one interface
+			var interface_name string
+			var iface *protocol.Interface
+
+			// Iterate through the map to get the key-value pair
+			for key, val := range stack.Interfaces {
+				interface_name = key
+				iface = val
+				break
+			}
+			stack.SendIP(iface.IP, 16, 0)
 		} else {
 			fmt.Println("Invalid command.")
 			os.Exit(0)

@@ -1,4 +1,4 @@
-package main
+package protocol
 
 import (
 	"fmt"
@@ -24,13 +24,13 @@ type Interface struct {
 	IP        netip.Addr                    // the IP address of the interface on this host
 	Prefix    netip.Prefix                  // the network submask/prefix
 	Neighbors map[netip.Addr]netip.AddrPort // maps (virtual) IPs to UDP port
-	Udp       *net.UDPAddr                 // the UDP address of the interface on this host
+	Udp       *net.UDPAddr                  // the UDP address of the interface on this host
 	Down      bool                          // whether the interface is down or not
 	Conn      *net.UDPConn                  // listen to incoming UDP packets
 }
 
 type ipCostInterfaceTuple struct {
-	ip netip.Addr
+	ip        netip.Addr
 	cost      uint16
 	Interface *Interface
 }
@@ -41,16 +41,16 @@ type IPStack struct {
 	RoutingType   lnxconfig.RoutingMode
 	Forward_table map[netip.Prefix]*ipCostInterfaceTuple // maps IP prefixes to ip-cost-interface tuple
 	Handler_table map[uint16]HandlerFunc                 // maps protocol numbers to handlers
-	Interfaces    map[string]*Interface               // maps interface names to interfaces
-	Mutex         sync.Mutex                          // for concurrency
+	Interfaces    map[string]*Interface                  // maps interface names to interfaces
+	Mutex         sync.Mutex                             // for concurrency
 }
 
 func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// Populate fields of stack
 	stack.RoutingType = configInfo.RoutingMode
 	stack.Forward_table = make(map[netip.Prefix]*ipCostInterfaceTuple)
-	stack.Handler_table = make(map[uint16]HandlerFunc)              
-	stack.Interfaces = make(map[string]*Interface)               
+	stack.Handler_table = make(map[uint16]HandlerFunc)
+	stack.Interfaces = make(map[string]*Interface)
 	stack.Mutex = sync.Mutex{}
 
 	// create interfaces to populate map of interfaces for IPStack struct
@@ -64,7 +64,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 
 		// Creating UDP conn for each interface
-		serverAddr, err := net.ResolveUDPAddr("udp4", newInterface.Udp.String())
+		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.AssignedIP.String())
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -89,7 +89,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	for _, neighbor := range configInfo.Neighbors {
 		// This is saying "I can reach this neighbor through this interface lnxInterface"
 		interface_struct := stack.Interfaces[neighbor.InterfaceName]
-		interface_struct.Neighbors[neighbor.DestAddr] = neighbor.UDPAddr	
+		interface_struct.Neighbors[neighbor.DestAddr] = neighbor.UDPAddr
 	}
 	return nil
 }
@@ -104,7 +104,7 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 		ID:       0,
 		Flags:    0,
 		FragOff:  0,
-		TTL:      prevTTL-1,
+		TTL:      prevTTL - 1,
 		Protocol: int(protocolNum),
 		Checksum: int(prevChecksum), // Should be 0 until checksum is computed
 		Src:      src,
@@ -130,7 +130,7 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 
 	// Find longest prefix match
 	destInterface := stack.findPrefixMatch(header.Dst).Interface
-	if (destInterface == nil) {
+	if destInterface == nil {
 		// no match found, drop packet
 		return nil
 	}
@@ -163,13 +163,13 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 		}
 	}
 
-	if (longestMatch.Bits() <= 0) {
+	if longestMatch.Bits() <= 0 {
 		// no match found, drop packet
 		return nil
 	}
 
 	// check tuple to see if we hit deafult case and need to re-look up ip in forwarding table
-	if (bestTuple.Interface != nil) {
+	if bestTuple.Interface != nil {
 		return bestTuple
 	} else {
 		// hit default case, keep looking
@@ -178,18 +178,16 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 	}
 }
 
-
-
 func (stack *IPStack) Receive(iface *Interface) error {
 	buffer := make([]byte, MAX_PACKET_SIZE)
 	_, _, err := iface.Conn.ReadFromUDP(buffer)
-	if (err != nil) {
+	if err != nil {
 		fmt.Println(err)
 		return err
 	}
 
 	hdr, err := ipv4header.ParseHeader(buffer)
-	if (err != nil) {
+	if err != nil {
 		fmt.Println("Error parsing header", err)
 		return nil // TODO? what to do? node should not crash or exit, instead just drop message and return to processing
 	}
@@ -200,7 +198,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	hdrBytes := buffer[:hdrSize]
 	checksumFromHeader := uint16(hdr.Checksum)
 	computedChecksum := header.Checksum(hdrBytes, checksumFromHeader)
-	if (computedChecksum != checksumFromHeader) {
+	if computedChecksum != checksumFromHeader {
 		// if checksum invalid, drop packet and return
 		fmt.Println("Error validating checksum in packet header")
 		return nil
@@ -210,13 +208,13 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	message := buffer[hdrSize:]
 
 	// check packet's dest ip
-	if (hdr.Dst == iface.IP) {
+	if hdr.Dst == iface.IP {
 		// packet has reached destination
 
 		// create packet to pass into callback
 		packet := &IPPacket{
-			Header : *hdr,
-			Payload : message,
+			Header:  *hdr,
+			Payload: message,
 		}
 		// calling callback
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
@@ -224,16 +222,16 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		// packet has NOT reached dest yet
 
 		// check TTL is still valid
-		if (hdr.TTL <= 0) {
+		if hdr.TTL <= 0 {
 			// TTL invalid, drop packet
 			return nil
 		}
 
 		value, exists := iface.Neighbors[hdr.Dst]
-		if (exists) {
+		if exists {
 			// if packet destination is interface's neighbor, can send directly through UDP
 			udpAddr := &net.UDPAddr{
-				IP: net.IP(value.Addr().AsSlice()),
+				IP:   net.IP(value.Addr().AsSlice()),
 				Port: int(value.Port()),
 			}
 
@@ -241,7 +239,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 			hdr.TTL = hdr.TTL - 1
 			hdr.Checksum = int(ComputeChecksum(hdrBytes, uint16(hdr.Checksum)))
 			hdrBytes, err = hdr.Marshal()
-			if (err != nil) {
+			if err != nil {
 				fmt.Println(err)
 				return nil
 			}
@@ -249,10 +247,10 @@ func (stack *IPStack) Receive(iface *Interface) error {
 			buffer := make([]byte, 0, len(hdrBytes)+len(message))
 			buffer = append(buffer, hdrBytes...)
 			buffer = append(buffer, []byte(message)...)
-			
+
 			// write packet with new header to neighbor
 			_, err := iface.Conn.WriteToUDP(buffer, udpAddr)
-			if (err != nil) {
+			if err != nil {
 				fmt.Println(err)
 				return err
 			}
@@ -279,47 +277,40 @@ func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc Handl
 	stack.Handler_table[protocolNum] = callbackFunc
 }
 
-
 // REPL commands
-// func (stack *IPStack) Li() string {
-// 	var res = "Name Addr/Prefix State"
-// 	for ifaceName, iface := range stack.Interfaces {
-// 		res += "\n" + ifaceName + " " + iface.Prefix.String() 
-// 		if (iface.Down) {
-// 			res += " down"
-// 		} else {
-// 			res += " up"
-// 		}
-// 	}
-// 	return res
-// }
+func (stack *IPStack) Li() string {
+	var res = "Name Addr/Prefix State"
+	for ifaceName, iface := range stack.Interfaces {
+		res += "\n" + ifaceName + " " + iface.Prefix.String()
+		if iface.Down {
+			res += " down"
+		} else {
+			res += " up"
+		}
+	}
+	return res
+}
 
-// func (stack *IPStack) Ln() string {
-// 	var res = "Iface VIP UDPAddr"
-// 	for ifaceName, iface := range stack.Interfaces {
-// 		if (iface.Down) {
-// 			continue
-// 		} else {
-// 			for neighborIp, neighborAddrPort := range iface.Neighbors {
-// 				res += "\n" + ifaceName + " " + neighborIp.String() + " " + neighborAddrPort.String()
-// 			}
-// 		}
-// 	}
-// 	return res
-// }
+func (stack *IPStack) Ln() string {
+	var res = "Iface VIP UDPAddr"
+	for ifaceName, iface := range stack.Interfaces {
+		if iface.Down {
+			continue
+		} else {
+			for neighborIp, neighborAddrPort := range iface.Neighbors {
+				res += "\n" + ifaceName + " " + neighborIp.String() + " " + neighborAddrPort.String()
+			}
+		}
+	}
+	return res
+}
 
-// func (stack *IPStack) Lr() string {
-// 	return ""
-// 	// TODO
-// }
+func (stack *IPStack) Lr() string {
+	return ""
+	// TODO
+}
 
-// func (stack *IPStack) Down() error {
-// 	return nil
-// 	// TODO
-// }
-
-// func (stack *IPStack) Down() error {
-// 	return nil
-// 	// TODO
-// }
-
+func (stack *IPStack) Down() error {
+	return nil
+	// TODO
+}
