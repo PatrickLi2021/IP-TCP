@@ -157,6 +157,7 @@ func (stack *IPStack) SendIP(src *Interface, TTL int, dest netip.Addr, protocolN
 		return nil
 	}
 
+	fmt.Println("in send, find prefix done")
 	bytesWritten, err := src.Conn.WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
@@ -174,8 +175,14 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 
 func (stack *IPStack) findPrefixMatch(addr netip.Addr) *net.UDPAddr {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
-	var bestTuple *ipCostInterfaceTuple
+	var bestTuple *ipCostInterfaceTuple = nil
 
+	fmt.Println("\nin find prefix match, forward table = ")
+	for pref, tuple := range stack.Forward_table {
+		fmt.Println(pref)
+		fmt.Println(tuple.ip)
+		fmt.Println()
+	}
 	for pref, tuple := range stack.Forward_table {
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
@@ -185,7 +192,8 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *net.UDPAddr {
 		}
 	}
 
-	if longestMatch.Bits() <= 0 {
+	if bestTuple == nil {
+		fmt.Println("no match 1")
 		// no match found, drop packet
 		return nil
 	}
@@ -200,14 +208,19 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *net.UDPAddr {
 					IP:   net.IP(port.Addr().AsSlice()),
 					Port: int(port.Port()),
 				}
+				fmt.Println("\nin find prefix, next dest ip = ")
+				fmt.Println(ip)
 				return udpAddr
 			}
 		}
 		// no match found, drop packet
+		fmt.Println("no match 2")
 		return nil
 	} else {
 		// hit default case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
+		fmt.Println("\nrecursive call here, ip = ")
+		fmt.Println(bestTuple.ip)
 		return stack.findPrefixMatch(bestTuple.ip)
 	}
 }
