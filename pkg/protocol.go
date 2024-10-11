@@ -85,12 +85,58 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		newInterface.Neighbors = make(map[netip.Addr]netip.AddrPort)
 	}
 
-	// for all the node's neighbors, loop through and add to correct interfaces map:
+	// for all the node's neighbors, loop through and add to correct interfaces map
 	for _, neighbor := range configInfo.Neighbors {
 		// This is saying "I can reach this neighbor through this interface lnxInterface"
 		interface_struct := stack.Interfaces[neighbor.InterfaceName]
 		interface_struct.Neighbors[neighbor.DestAddr] = neighbor.UDPAddr
 	}
+
+	for _, iface := range stack.Interfaces {
+		// Populate forwarding table with interfaces ON THIS NODE
+		stack.Forward_table[iface.Prefix] = &ipCostInterfaceTuple{
+			ip:        iface.IP,
+			cost:      16,
+			Interface: iface,
+		}
+		// Populate forwarding table with interfaces of NEIGHBORS
+		for neighbor_addr, _ := range iface.Neighbors {
+			stack.Forward_table[iface.Prefix] = &ipCostInterfaceTuple{
+				ip:        neighbor_addr,
+				cost:      16,
+				Interface: &Interface{},
+			}
+		}
+	}
+
+	// Add default route entry
+	for prefix, address := range configInfo.StaticRoutes {
+		stack.Forward_table[prefix] = &ipCostInterfaceTuple{
+			ip:        address,
+			cost:      16,
+			Interface: &Interface{},
+		}
+	}
+	fmt.Println("FORWARD TABLE")
+	for key, value := range stack.Forward_table {
+		fmt.Println(key)
+		fmt.Println(value.ip)
+		fmt.Println()
+	}
+
+	fmt.Println("INTERFACES and NEIGHBORS")
+	for key, value := range stack.Interfaces {
+		fmt.Println(key)
+		fmt.Println(value.IP)
+		fmt.Println()
+		for key2, value2 := range value.Neighbors {
+			fmt.Println(key2)
+			fmt.Println(value2)
+			fmt.Println()
+		}
+	}
+
+	fmt.Println(stack.Handler_table)
 	return nil
 }
 
@@ -131,14 +177,18 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
 	fmt.Println("Finished constructing bytes to send")
+	fmt.Println(stack.Forward_table)
 
 	// Find longest prefix match
-	destInterface := stack.findPrefixMatch(header.Dst).Interface
-	if destInterface == nil {
+	destInterfaceIP := stack.findPrefixMatch(header.Dst).ip
+	var invalidIP netip.Addr
+	if destInterfaceIP == invalidIP {
 		// no match found, drop packet
 		return nil
 	}
 	fmt.Println("finished finding prefix match")
+	fmt.Println("dest interface")
+	fmt.Println(destInterface.IP)
 	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
 	if err != nil {
 		fmt.Println(err)
@@ -186,7 +236,6 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 // 		return err
 // 	}
 
-
 // 	// Construct all bytes of the IP packet
 // 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 // 	bytesToSend = append(bytesToSend, headerBytes...)
@@ -208,6 +257,7 @@ func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
 }
 
 func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
+	fmt.Println("inside find prefix match")
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple
 
@@ -227,10 +277,13 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 
 	// check tuple to see if we hit deafult case and need to re-look up ip in forwarding table
 	if bestTuple.Interface != nil {
+		fmt.Println("Mbappe")
+		fmt.Println(bestTuple.ip)
 		return bestTuple
 	} else {
-		// hit default case, keep looking
-		// TODO - feel like doing this wrong
+		// hit default case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
+		// here)
+		fmt.Println("Haaland")
 		return stack.findPrefixMatch(bestTuple.ip)
 	}
 }

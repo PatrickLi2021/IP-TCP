@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
 	protocol "ip-ip-pa/pkg"
 	"net/netip"
 	"os"
-	"bufio"
 	"strings"
 )
 
@@ -38,7 +38,6 @@ func main() {
 		go listen(stack, iface)
 	}
 
-
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Enter commands:")
 	for scanner.Scan() {
@@ -60,12 +59,12 @@ func main() {
 			var spaceIdx = strings.Index(userInput[5:], " ") + 5
 
 			destIP, err := netip.ParseAddr(userInput[5:spaceIdx])
-			if (err != nil) {
+			if err != nil {
 				fmt.Println("Please enter a valid IP address after send")
 				continue
 			}
-			var message = userInput[spaceIdx + 1:]
-			if (len(message) <= 0) {
+			var message = userInput[spaceIdx+1:]
+			if len(message) <= 0 {
 				fmt.Println("Please enter a valid message to send after the IP address")
 				continue
 			}
@@ -78,6 +77,7 @@ func main() {
 				iface = val
 				break
 			}
+			fmt.Println("Mbappe")
 			stack.SendIP(iface.IP, 16, 0, destIP, 0, []byte(message))
 		} else {
 			fmt.Println("Invalid command.")
