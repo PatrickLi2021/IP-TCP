@@ -99,14 +99,6 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			cost:      16,
 			Interface: iface,
 		}
-		// Populate forwarding table with interfaces of NEIGHBORS
-		for neighbor_addr, _ := range iface.Neighbors {
-			stack.Forward_table[iface.Prefix] = &ipCostInterfaceTuple{
-				ip:        neighbor_addr,
-				cost:      16,
-				Interface: &Interface{},
-			}
-		}
 	}
 
 	// Add default route entry
@@ -114,33 +106,14 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		stack.Forward_table[prefix] = &ipCostInterfaceTuple{
 			ip:        address,
 			cost:      16,
-			Interface: &Interface{},
-		}
-	}
-	fmt.Println("FORWARD TABLE")
-	for key, value := range stack.Forward_table {
-		fmt.Println(key)
-		fmt.Println(value.ip)
-		fmt.Println()
-	}
-
-	fmt.Println("INTERFACES and NEIGHBORS")
-	for key, value := range stack.Interfaces {
-		fmt.Println(key)
-		fmt.Println(value.IP)
-		fmt.Println()
-		for key2, value2 := range value.Neighbors {
-			fmt.Println(key2)
-			fmt.Println(value2)
-			fmt.Println()
+			Interface: nil,
 		}
 	}
 
-	fmt.Println(stack.Handler_table)
 	return nil
 }
 
-func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, dest netip.Addr, protocolNum uint16, data []byte) error {
+func (stack *IPStack) SendIP(src *Interface, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Construct IP packet header
 	header := ipv4header.IPv4Header{
 		Version:  4,
@@ -150,114 +123,56 @@ func (stack *IPStack) SendIP(src netip.Addr, prevTTL int, prevChecksum uint16, d
 		ID:       0,
 		Flags:    0,
 		FragOff:  0,
-		TTL:      prevTTL - 1,
+		TTL:      TTL,
 		Protocol: int(protocolNum),
-		Checksum: int(prevChecksum), // Should be 0 until checksum is computed
-		Src:      src,
+		Checksum: 0, // Should be 0 until checksum is computed
+		Src:      src.IP,
 		Dst:      dest,
 		Options:  []byte{},
 	}
-	fmt.Println("Finished constructing packet")
 	headerBytes, err := header.Marshal()
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
-	fmt.Println("Finished marshaling packet")
+
 	// Compute header checksum
-	header.Checksum = int(ComputeChecksum(headerBytes, prevChecksum))
+	header.Checksum = int(ComputeChecksum(headerBytes))
 	headerBytes, err = header.Marshal()
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
-	fmt.Println("Finished computing checksum")
+
 	// Construct all bytes of the IP packet
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
-	fmt.Println("Finished constructing bytes to send")
-	fmt.Println(stack.Forward_table)
 
 	// Find longest prefix match
-	destInterfaceIP := stack.findPrefixMatch(header.Dst).ip
-	var invalidIP netip.Addr
-	if destInterfaceIP == invalidIP {
+	destAddrPort := stack.findPrefixMatch(header.Dst)
+
+	if destAddrPort == nil {
 		// no match found, drop packet
 		return nil
 	}
-	fmt.Println("finished finding prefix match")
-	fmt.Println("dest interface")
-	fmt.Println(destInterface.IP)
-	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
+
+	bytesWritten, err := src.Conn.WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
-	fmt.Println("finished writing to UDP")
 	fmt.Printf("Sent %d bytes\n", bytesWritten)
 	return nil
 }
 
-// func (stack *IPStack) SendIP(dst netip.Addr, protocolNum uint8, data []byte) (error) {
-// 	// Find longest prefix match
-// 	destInterface := stack.findPrefixMatch(dst).Interface
-// 	if destInterface == nil {
-// 		// no match found, drop packet
-// 		return nil
-// 	}
-
-// 	// Construct IP packet header
-// 	header := ipv4header.IPv4Header{
-// 		Version:  4,
-// 		Len:      20, // Header length is always 20 when no IP options
-// 		TOS:      0,
-// 		TotalLen: ipv4header.HeaderLen + len(data),
-// 		ID:       0,
-// 		Flags:    0,
-// 		FragOff:  0,
-// 		TTL:      prevTTL - 1,
-// 		Protocol: int(protocolNum),
-// 		Checksum: int(prevChecksum), // Should be 0 until checksum is computed
-// 		Src:      src,
-// 		Dst:      dest,
-// 		Options:  []byte{},
-// 	}
-// 	headerBytes, err := header.Marshal()
-// 	if err != nil {
-// 		fmt.Println(err)
-// 		return err
-// 	}
-// 	// Compute header checksum
-// 	header.Checksum = int(ComputeChecksum(headerBytes, prevChecksum))
-// 	headerBytes, err = header.Marshal()
-// 	if err != nil {
-// 		fmt.Println(err)
-// 		return err
-// 	}
-
-// 	// Construct all bytes of the IP packet
-// 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
-// 	bytesToSend = append(bytesToSend, headerBytes...)
-// 	bytesToSend = append(bytesToSend, []byte(data)...)
-
-// 	bytesWritten, err := destInterface.Conn.WriteToUDP(bytesToSend, destInterface.Udp)
-// 	if err != nil {
-// 		fmt.Println(err)
-// 		return err
-// 	}
-// 	fmt.Printf("Sent %d bytes\n", bytesWritten)
-// 	return nil
-// }
-
-func ComputeChecksum(headerBytes []byte, prevChecksum uint16) uint16 {
-	checksum := header.Checksum(headerBytes, prevChecksum)
+func ComputeChecksum(headerBytes []byte) uint16 {
+	checksum := header.Checksum(headerBytes, 0)
 	checksumInv := checksum ^ 0xffff
 	return checksumInv
 }
 
-func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
-	fmt.Println("inside find prefix match")
+func (stack *IPStack) findPrefixMatch(addr netip.Addr) *net.UDPAddr {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple
 
@@ -277,13 +192,22 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *ipCostInterfaceTuple {
 
 	// check tuple to see if we hit deafult case and need to re-look up ip in forwarding table
 	if bestTuple.Interface != nil {
-		fmt.Println("Mbappe")
-		fmt.Println(bestTuple.ip)
-		return bestTuple
+		// it is local, so look up the dest ip in best tuple's neighbors table:
+		for ip, port := range bestTuple.Interface.Neighbors {
+			if (ip == addr) {
+				// Convert netip.AddrPort to *net.UDPAddr
+				udpAddr := &net.UDPAddr{
+					IP:   net.IP(port.Addr().AsSlice()),
+					Port: int(port.Port()),
+				}
+				return udpAddr
+			}
+		}
+		// no match found, drop packet
+		return nil
 	} else {
 		// hit default case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
-		fmt.Println("Haaland")
 		return stack.findPrefixMatch(bestTuple.ip)
 	}
 }
@@ -310,7 +234,11 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	computedChecksum := header.Checksum(hdrBytes, checksumFromHeader)
 	if computedChecksum != checksumFromHeader {
 		// if checksum invalid, drop packet and return
-		fmt.Println("Error validating checksum in packet header")
+		return nil
+	}
+
+	// if TTL < 0, drop packet
+	if hdr.TTL <= 0 {
 		return nil
 	}
 
@@ -326,54 +254,17 @@ func (stack *IPStack) Receive(iface *Interface) error {
 			Header:  *hdr,
 			Payload: message,
 		}
+
 		// calling callback
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
-
-		// check TTL is still valid
-		if hdr.TTL <= 0 {
-			// TTL invalid, drop packet
-			return nil
-		}
-
-		value, exists := iface.Neighbors[hdr.Dst]
-		if exists {
-			// if packet destination is interface's neighbor, can send directly through UDP
-			udpAddr := &net.UDPAddr{
-				IP:   net.IP(value.Addr().AsSlice()),
-				Port: int(value.Port()),
-			}
-
-			// decrement TTL and recompute checksum
-			hdr.TTL = hdr.TTL - 1
-			hdr.Checksum = int(ComputeChecksum(hdrBytes, uint16(hdr.Checksum)))
-			hdrBytes, err = hdr.Marshal()
-			if err != nil {
-				fmt.Println(err)
-				return nil
-			}
-
-			buffer := make([]byte, 0, len(hdrBytes)+len(message))
-			buffer = append(buffer, hdrBytes...)
-			buffer = append(buffer, []byte(message)...)
-
-			// write packet with new header to neighbor
-			_, err := iface.Conn.WriteToUDP(buffer, udpAddr)
-			if err != nil {
-				fmt.Println(err)
-				return err
-			}
-		} else {
-			// dest is not one of interface's neighbors
-			// call sendIP again
-			return stack.SendIP(hdr.Src, hdr.TTL, uint16(hdr.Checksum), hdr.Dst, uint16(hdr.Protocol), message)
-		}
+		return stack.SendIP(iface, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 	}
 	return nil
 }
 
-func (stack *IPStack) TestPacketHandler(packet *IPPacket) {
+func TestPacketHandler(packet *IPPacket) {
 	fmt.Println("Received test packet: Src: " + packet.Header.Src.String() +
 		", Dst: " + packet.Header.Dst.String() +
 		", TTL: " + strconv.Itoa(packet.Header.TTL) +

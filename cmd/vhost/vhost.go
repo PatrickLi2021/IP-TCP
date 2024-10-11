@@ -38,6 +38,8 @@ func main() {
 		go listen(stack, iface)
 	}
 
+	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
+
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Enter commands:")
 	for scanner.Scan() {
@@ -77,8 +79,7 @@ func main() {
 				iface = val
 				break
 			}
-			fmt.Println("Mbappe")
-			stack.SendIP(iface.IP, 16, 0, destIP, 0, []byte(message))
+			stack.SendIP(iface, 16, destIP, 0, []byte(message))
 		} else {
 			fmt.Println("Invalid command.")
 			continue
