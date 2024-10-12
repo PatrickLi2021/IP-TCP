@@ -39,11 +39,12 @@ type ipCostInterfaceTuple struct {
 type HandlerFunc = func(*IPPacket)
 
 type IPStack struct {
-	RoutingType   lnxconfig.RoutingMode
-	Forward_table map[netip.Prefix]*ipCostInterfaceTuple // maps IP prefixes to ip-cost-interface tuple
-	Handler_table map[uint16]HandlerFunc                 // maps protocol numbers to handlers
-	Interfaces    map[netip.Addr]*Interface              // maps interface names to interfaces
-	Mutex         sync.Mutex                             // for concurrency
+	RoutingType     lnxconfig.RoutingMode
+	Forward_table   map[netip.Prefix]*ipCostInterfaceTuple // maps IP prefixes to ip-cost-interface tuple
+	Handler_table   map[uint16]HandlerFunc                 // maps protocol numbers to handlers
+	Interfaces      map[netip.Addr]*Interface              // maps interface names to interfaces
+	Mutex           sync.Mutex                             // for concurrency
+	NameToInterface map[string]*Interface                  // maps name to interface for REPL commands
 }
 
 func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
@@ -81,6 +82,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 
 		// Map interface name to interface struct for ip stack struct- TODO maybe change this map key
 		stack.Interfaces[newInterface.IP] = &newInterface
+		stack.NameToInterface[newInterface.Name] = &newInterface
 
 		// new neighbors map for new interface
 		newInterface.Neighbors = make(map[netip.Addr]netip.AddrPort)
@@ -387,12 +389,25 @@ func (stack *IPStack) Ln() string {
 
 func (stack *IPStack) Lr() string {
 	return ""
-	// TODO
 }
 
-func (stack *IPStack) Down() error {
-	return nil
-	// TODO
+func (stack *IPStack) Down(interfaceName string) {
+	// Close the interface conn
+	iface := stack.NameToInterface[interfaceName]
+	iface.Conn.Close()
+
+	// Set down flag in interface to true
+	iface.Down = true
+}
+
+func (stack *IPStack) Up(interfaceName string) {
+	// Set interface status to active as long as interface was down in the first place
+	iface := stack.NameToInterface[interfaceName]
+	if iface.Down {
+		iface.Down = false
+		// Start listening again
+		iface.Conn, _ = net.ListenUDP("udp4", iface.Udp)
+	}
 }
 
 func convertToUint32(input interface{}) (uint32, uint32, error) {
@@ -422,7 +437,7 @@ func uint32ToAddr(ipUint32 uint32) (netip.Addr, error) {
 	// Create a netip.Addr from the byte slice
 	addr, ok := netip.AddrFromSlice(ip)
 	if !ok {
-		return netip.Addr{}, errors.New("Could not create netip.Addr")
+		return netip.Addr{}, errors.New("could not create netip.addr")
 	}
 	return addr, nil
 }

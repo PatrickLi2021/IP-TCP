@@ -14,8 +14,8 @@ var ripInstance *protocol.RipInstance
 
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	for {
+		// All logic for updating other router's tables is handled in receive()
 		stack.Receive(stack.Interfaces[iface.IP])
-
 	}
 }
 
@@ -79,10 +79,13 @@ func main() {
 		} else if userInput == "lr" {
 			// TODO
 		} else if userInput == "down" {
-			stack.Down()
-			// TODO - iface name
+			interfaceName := userInput[5:]
+			stack.Down(interfaceName)
+
 		} else if userInput == "up" {
-			// TODO - iface name
+			interfaceName := userInput[3:]
+			stack.Up(interfaceName)
+
 		} else if userInput[0:4] == "send" {
 			var spaceIdx = strings.Index(userInput[5:], " ") + 5
 

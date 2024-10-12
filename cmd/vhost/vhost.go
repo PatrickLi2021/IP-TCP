@@ -49,15 +49,21 @@ func main() {
 
 		if userInput == "li" {
 			fmt.Println(stack.Li())
+
 		} else if userInput == "ln" {
 			fmt.Println(stack.Ln())
+
 		} else if userInput == "lr" {
 			// TODO
-		} else if userInput == "down" {
-			stack.Down()
-			// TODO - iface name
+
+		} else if userInput[0:4] == "down" {
+			interfaceName := userInput[5:]
+			stack.Down(interfaceName)
+
 		} else if userInput == "up" {
-			// TODO - iface name
+			interfaceName := userInput[3:]
+			stack.Up(interfaceName)
+
 		} else if userInput[0:4] == "send" {
 			var spaceIdx = strings.Index(userInput[5:], " ") + 5
 
