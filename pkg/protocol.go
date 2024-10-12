@@ -2,14 +2,14 @@ package protocol
 
 import (
 	"fmt"
+	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"github.com/google/netstack/tcpip/header"
 	"ip-ip-pa/lnxconfig"
+	"ip-ip-pa/rip"
 	"net"
 	"net/netip"
 	"strconv"
 	"sync"
-
-	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"github.com/google/netstack/tcpip/header"
 )
 
 const MAX_PACKET_SIZE = 1400
@@ -198,11 +198,11 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *net.UDPAddr {
 		return nil
 	}
 
-	// check tuple to see if we hit deafult case and need to re-look up ip in forwarding table
+	// check tuple to see if we hit default case and need to re-look up ip in forwarding table
 	if bestTuple.Interface != nil {
 		// it is local, so look up the dest ip in best tuple's neighbors table:
 		for ip, port := range bestTuple.Interface.Neighbors {
-			if (ip == addr) {
+			if ip == addr {
 				// Convert netip.AddrPort to *net.UDPAddr
 				udpAddr := &net.UDPAddr{
 					IP:   net.IP(port.Addr().AsSlice()),
@@ -284,7 +284,8 @@ func TestPacketHandler(packet *IPPacket) {
 		", Data: " + string(packet.Payload))
 }
 
-func RIPPacketHandler() {
+func RIPPacketHandler(packet *IPPacket) {
+
 }
 
 func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) {

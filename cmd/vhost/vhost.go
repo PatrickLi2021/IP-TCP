@@ -41,7 +41,7 @@ func main() {
 	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
 
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Println("Enter commands:")
+	fmt.Println("Enter command:")
 	for scanner.Scan() {
 		// REPL
 		userInput := scanner.Text()
