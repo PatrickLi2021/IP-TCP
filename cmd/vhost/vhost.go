@@ -13,7 +13,7 @@ import (
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	// Since this is a host, we only listen on one interface
 	for {
-		stack.Receive(stack.Interfaces[iface.Name])
+		stack.Receive(stack.Interfaces[iface.IP])
 	}
 
 }
@@ -34,7 +34,7 @@ func main() {
 	// Create a new host node
 	var stack *protocol.IPStack = &protocol.IPStack{}
 	stack.Initialize(*lnxConfig)
-	
+
 	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
 
 	for _, iface := range stack.Interfaces {
@@ -80,7 +80,7 @@ func main() {
 				iface = val
 				break
 			}
-			stack.SendIP(iface, 16, destIP, 0, []byte(message))
+			stack.SendIP(&iface.IP, 16, destIP, 0, []byte(message))
 		} else {
 			fmt.Println("Invalid command.")
 			continue

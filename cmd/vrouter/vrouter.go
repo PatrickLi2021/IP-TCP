@@ -4,19 +4,18 @@ import (
 	"bufio"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
-	protocol "ip-ip-pa/pkg"
-	"ip-ip-pa/rip"
+	"ip-ip-pa/pkg"
 	"net/netip"
 	"os"
 	"strings"
 )
 
-var ripInstance *rip.RipInstance
+var ripInstance *protocol.RipInstance
 
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	for {
 		stack.Receive(stack.Interfaces[iface.IP])
-		
+
 	}
 }
 
@@ -41,20 +40,20 @@ func main() {
 
 	// Router is now online, so we need to declare/initialize ripInstance specific struct
 	// send RIP request to all of its neighbors
-	if (stack.RoutingType == 2) {
-		ripInstance.Initialize(lnxConfig)
-		stack.RegisterRecvHandler(200, protocol.RIPPacketHandler)
+	if stack.RoutingType == 2 {
+		ripInstance.Initialize(*lnxConfig)
+		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
 
 		// send rip request to all rip neighbors
-		for neighborIp := range ripInstance.NeighborRouters {
-			requestPacket := &rip.RIPPacket{
-				Command: 1,
+		for _, neighborIp := range ripInstance.NeighborRouters {
+			requestPacket := &protocol.RIPPacket{
+				Command:     1,
 				Num_entries: 0,
-				Entries: []rip.RIPEntry{},
+				Entries:     []protocol.RIPEntry{},
 			}
 
-			requestBytes, err := rip.MarshalRIP(requestPacket)
-			if (err != nil) {
+			requestBytes, err := protocol.MarshalRIP(requestPacket)
+			if err != nil {
 				fmt.Println(err)
 				return
 			}

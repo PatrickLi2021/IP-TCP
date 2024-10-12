@@ -1,12 +1,9 @@
-package rip
+package protocol
 
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"ip-ip-pa/lnxconfig"
-	protocol "ip-ip-pa/pkg"
-	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -27,6 +24,7 @@ type RIPEntry struct {
 	Cost    uint32
 	Address uint32
 	Mask    uint32
+	MaskLen uint32
 }
 
 type RouteEntry struct {
@@ -36,10 +34,10 @@ type RouteEntry struct {
 }
 
 type RipInstance struct {
-	NeighborRouters []netip.Addr
+	NeighborRouters       []netip.Addr
 	RipPeriodicUpdateRate time.Duration
 	RipTimeoutThreshold   time.Duration
-	mutex           sync.Mutex
+	mutex                 sync.Mutex
 }
 
 func (ripInstance *RipInstance) Initialize(configInfo lnxconfig.IPConfig) {
@@ -92,9 +90,9 @@ func MarshalRIP(ripPacket *RIPPacket) ([]byte, error) {
 
 func UnmarshalRIP(payload []byte) (*RIPPacket, error) {
 	// Extract metadata
-	command := payload[0:2]
-	numEntries := payload[2:4]
-	
+	command := binary.BigEndian.Uint16(payload[0:2])
+	numEntries := binary.BigEndian.Uint16(payload[2:4])
+
 	// Create empty RIP packet struct
 	packet := &RIPPacket{
 		Command:     command,
@@ -102,12 +100,11 @@ func UnmarshalRIP(payload []byte) (*RIPPacket, error) {
 		Entries:     make([]RIPEntry, numEntries),
 	}
 	offset := 4
-	for i := 0; i < int(num_entries); i++ {
-		ripEntryBuffer := make([]byte, 12)
+	for i := 0; i < int(numEntries); i++ {
 		entry := RIPEntry{
 			Cost:    binary.LittleEndian.Uint32(payload[offset : offset+4]),
-			Address: binary.LittleEndian.Uint32(payload[offset + 4 : offset + 8]),
-			Mask:    binary.LittleEndian.Uint32(payload[offset + 8 : offset + 12]),
+			Address: binary.LittleEndian.Uint32(payload[offset+4 : offset+8]),
+			Mask:    binary.LittleEndian.Uint32(payload[offset+8 : offset+12]),
 		}
 		packet.Entries[i] = entry
 		offset += 12
@@ -115,20 +112,6 @@ func UnmarshalRIP(payload []byte) (*RIPPacket, error) {
 	return packet, nil
 }
 
-func (stack *IPStack) PeriodicUpdate(dest *netip.Addr) error {
-	ripPacket := &RIPPacket{
-		Command: 2,
-		num_entries: len(stack.Forward_table),
-		Entries: stack.Forward_table,
-	}
-	ripBytes, err := Marshal_Rip(rip_packet)
-	stack.sendIP()
-	
-	
-	type RIPPacket struct {
-		Command     uint16
-		Num_entries uint16
-		Entries     []RIPEntry
-		SourceIP    netip.Addr
-	}
+func (stack *IPStack) PeriodicUpdate(dest *netip.Addr) {
+
 }
