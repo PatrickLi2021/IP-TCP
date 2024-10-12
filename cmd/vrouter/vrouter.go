@@ -10,10 +10,9 @@ import (
 	"strings"
 )
 
-var ripInstance *protocol.RipInstance
-
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	for {
+		fmt.Println("IN HERE")
 		// All logic for updating other router's tables is handled in receive()
 		stack.Receive(stack.Interfaces[iface.IP])
 	}
@@ -33,7 +32,11 @@ func main() {
 	}
 	// Create a new router node
 	var stack *protocol.IPStack = &protocol.IPStack{}
+	var ripInstance *protocol.RipInstance = &protocol.RipInstance{}
 	stack.Initialize(*lnxConfig)
+	fmt.Println("Here is the router forward table")
+	fmt.Println(stack.Forward_table)
+	fmt.Println()
 
 	// register test packet
 	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
@@ -45,6 +48,8 @@ func main() {
 		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
 
 		// send rip request to all rip neighbors
+		fmt.Println("SENDING RIP REQUEST UPON INITIALIZE")
+		fmt.Println("------------------------------------")
 		for _, neighborIp := range ripInstance.NeighborRouters {
 			requestPacket := &protocol.RIPPacket{
 				Command:     1,
@@ -61,7 +66,6 @@ func main() {
 			stack.SendIP(nil, 16, neighborIp, 200, requestBytes)
 		}
 	}
-
 	// Start listening on all of its interfaces
 	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)

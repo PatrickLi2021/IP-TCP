@@ -53,6 +53,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	stack.Forward_table = make(map[netip.Prefix]*ipCostInterfaceTuple)
 	stack.Handler_table = make(map[uint16]HandlerFunc)
 	stack.Interfaces = make(map[netip.Addr]*Interface)
+	stack.NameToInterface = make(map[string]*Interface)
 	stack.Mutex = sync.Mutex{}
 
 	// create interfaces to populate map of interfaces for IPStack struct
@@ -64,7 +65,6 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			Prefix: lnxInterface.AssignedPrefix,
 			Down:   false,
 		}
-
 		// Creating UDP conn for each interface
 		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr.String())
 		if err != nil {
@@ -87,14 +87,12 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		// new neighbors map for new interface
 		newInterface.Neighbors = make(map[netip.Addr]netip.AddrPort)
 	}
-
 	// for all the node's neighbors, loop through and add to correct interfaces map
 	for _, neighbor := range configInfo.Neighbors {
 		// This is saying "I can reach this neighbor through this interface lnxInterface"
-		interface_struct := stack.Interfaces[neighbor.DestAddr]
+		interface_struct := stack.NameToInterface[neighbor.InterfaceName]
 		interface_struct.Neighbors[neighbor.DestAddr] = neighbor.UDPAddr
 	}
-
 	for _, iface := range stack.Interfaces {
 		// Populate forwarding table with interfaces ON THIS NODE
 		stack.Forward_table[iface.Prefix] = &ipCostInterfaceTuple{
@@ -119,12 +117,21 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 }
 
 func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
+	fmt.Println("In SendIP()")
+	fmt.Println(src)
+	fmt.Println(dest)
+	fmt.Printf("This is the destination: %s\n", dest.String())
+
 	// Find longest prefix match
 	srcIP, destAddrPort := stack.findPrefixMatch(src, dest)
+	fmt.Println("Finished findPrefixMatch")
+	fmt.Println(destAddrPort)
+	fmt.Printf("This is where I'm forwarding the packet: %d\n", destAddrPort.Port)
 	if destAddrPort == nil {
 		// no match found, drop packet
 		return nil
 	}
+	fmt.Println()
 
 	// Construct IP packet header
 	header := ipv4header.IPv4Header{
@@ -162,13 +169,13 @@ func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocol
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
 
-	fmt.Println("in send, find prefix done")
 	// TODO
 	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
+	fmt.Printf("This is the destination port: %d\n", destAddrPort.Port)
 	fmt.Printf("Sent %d bytes\n", bytesWritten)
 	return nil
 }
@@ -183,12 +190,6 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
 
-	fmt.Println("\nin find prefix match, forward table = ")
-	for pref, tuple := range stack.Forward_table {
-		fmt.Println(pref)
-		fmt.Println(tuple.ip)
-		fmt.Println()
-	}
 	for pref, tuple := range stack.Forward_table {
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
@@ -199,7 +200,6 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 	}
 
 	if bestTuple == nil {
-		fmt.Println("no match 1")
 		// no match found, drop packet
 		return nil, nil
 	}
@@ -214,8 +214,6 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 					IP:   net.IP(port.Addr().AsSlice()),
 					Port: int(port.Port()),
 				}
-				fmt.Println("\nin find prefix, next dest ip = ")
-				fmt.Println(ip)
 				if src == nil {
 					// if src needs to be determined, it is the interface that we use to look thru its neighbors
 					return &bestTuple.Interface.IP, udpAddr
@@ -226,25 +224,23 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 			}
 		}
 		// no match found, drop packet
-		fmt.Println("no match 2")
 		return nil, nil
 	} else {
 		// hit default case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
-		fmt.Println("\nrecursive call here, ip = ")
-		fmt.Println(bestTuple.ip)
 		return stack.findPrefixMatch(src, bestTuple.ip)
 	}
 }
 
 func (stack *IPStack) Receive(iface *Interface) error {
+	fmt.Println("In Receive()")
 	buffer := make([]byte, MAX_PACKET_SIZE)
 	_, _, err := iface.Conn.ReadFromUDP(buffer)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
-
+	fmt.Println("Just read from the UDP conn")
 	hdr, err := ipv4header.ParseHeader(buffer)
 	if err != nil {
 		fmt.Println("Error parsing header", err)
@@ -261,7 +257,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		// if checksum invalid, drop packet and return
 		return nil
 	}
-
+	fmt.Println("finished validating checksum")
 	// if TTL < 0, drop packet
 	if hdr.TTL <= 0 {
 		return nil
@@ -269,7 +265,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 
 	// packet payload
 	message := buffer[hdrSize:]
-
+	fmt.Println("about to check the packet's destination IP")
 	// check packet's dest ip
 	if hdr.Dst == iface.IP {
 		// packet has reached destination
@@ -284,6 +280,9 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
+		fmt.Println("calling send IP")
+		fmt.Printf("This is the source: %s\n", hdr.Src.String())
+		fmt.Printf("This is the destination: %s\n", hdr.Dst.String())
 		return stack.SendIP(&hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 	}
 	return nil
