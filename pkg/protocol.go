@@ -50,7 +50,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// Populate fields of stack
 	stack.RoutingType = configInfo.RoutingMode
 	stack.Forward_table = make(map[netip.Prefix]*ipCostInterfaceTuple)
-	stack.Handler_table = make(map[uint16]HandlerFasdunc)
+	stack.Handler_table = make(map[uint16]HandlerFunc)
 	stack.Interfaces = make(map[netip.Addr]*Interface)
 	stack.Mutex = sync.Mutex{}
 
@@ -330,6 +330,17 @@ func RIPPacketHandler(stack *IPStack, packet *IPPacket) {
 			return 
 		}
 		stack.SendIP(nil, 16, destIP, 200, ripBytes)
+	} else if (ripPacket.command == 2) {
+		// received response, will need to update routing table
+		entryUpdates := ripPacket.Entries
+		for i := 0; i < int(ripPacket.num_entries); i++ {
+			entry := entryUpdates[i]
+			stack.Forward_table[entry.mask] = &ipCostInterfaceTuple{
+				ip: entry.Address,
+				cost: entry.Cost,
+				Interface: stack.Interfaces[entry.Address],
+			}
+		}
 	}
 }
 
