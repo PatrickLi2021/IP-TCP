@@ -15,7 +15,8 @@ var ripInstance *rip.RipInstance
 
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	for {
-		stack.Receive(stack.Interfaces[iface.Name])
+		stack.Receive(stack.Interfaces[iface.IP])
+		
 	}
 }
 
@@ -58,12 +59,11 @@ func main() {
 				return
 			}
 
-
-			stack.SendIP(16, neighborIp, 200, requestBytes)
+			stack.SendIP(nil, 16, neighborIp, 200, requestBytes)
 		}
 	}
 
-	// Start listening on all of its neighbors
+	// Start listening on all of its interfaces
 	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)
 	}
@@ -97,6 +97,8 @@ func main() {
 				fmt.Println("Please enter a valid message to send after the IP address")
 				continue
 			}
+
+			stack.SendIP(nil, 16, destIP, 0, []byte(message))
 
 		} else {
 			fmt.Println("Invalid command.")

@@ -3,6 +3,7 @@ package protocol
 import (
 	"fmt"
 	"ip-ip-pa/lnxconfig"
+	"ip-ip-pa/rip"
 	"net"
 	"net/netip"
 	"strconv"
@@ -49,7 +50,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// Populate fields of stack
 	stack.RoutingType = configInfo.RoutingMode
 	stack.Forward_table = make(map[netip.Prefix]*ipCostInterfaceTuple)
-	stack.Handler_table = make(map[uint16]HandlerFunc)
+	stack.Handler_table = make(map[uint16]HandlerFasdunc)
 	stack.Interfaces = make(map[netip.Addr]*Interface)
 	stack.Mutex = sync.Mutex{}
 
@@ -115,7 +116,14 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	return nil
 }
 
-func (stack *IPStack) SendIP(src netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
+func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
+	// Find longest prefix match
+	srcIP, destAddrPort := stack.findPrefixMatch(src, dest)
+	if destAddrPort == nil {
+		// no match found, drop packet
+		return nil
+	}
+
 	// Construct IP packet header
 	header := ipv4header.IPv4Header{
 		Version:  4,
@@ -128,10 +136,11 @@ func (stack *IPStack) SendIP(src netip.Addr, TTL int, dest netip.Addr, protocolN
 		TTL:      TTL,
 		Protocol: int(protocolNum),
 		Checksum: 0, // Should be 0 until checksum is computed
-		Src:      src,
+		Src:      *srcIP,
 		Dst:      dest,
 		Options:  []byte{},
 	}
+
 	headerBytes, err := header.Marshal()
 	if err != nil {
 		fmt.Println(err)
@@ -151,17 +160,9 @@ func (stack *IPStack) SendIP(src netip.Addr, TTL int, dest netip.Addr, protocolN
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
 
-	// Find longest prefix match
-	destAddrPort := stack.findPrefixMatch(header.Dst)
-
-	if destAddrPort == nil {
-		// no match found, drop packet
-		return nil
-	}
-
 	fmt.Println("in send, find prefix done")
 	// TODO
-	bytesWritten, err := stack.Interfaces[src].Conn.WriteToUDP(bytesToSend, destAddrPort)
+	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
 		return err
@@ -176,7 +177,7 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 	return checksumInv
 }
 
-func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
+func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.Addr, *net.UDPAddr) {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
 
@@ -198,7 +199,7 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
 	if bestTuple == nil {
 		fmt.Println("no match 1")
 		// no match found, drop packet
-		return nil
+		return nil, nil
 	}
 
 	// check tuple to see if we hit default case and need to re-look up ip in forwarding table
@@ -213,18 +214,24 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
 				}
 				fmt.Println("\nin find prefix, next dest ip = ")
 				fmt.Println(ip)
-				return udpAddr
+				if (src == nil) {
+					// if src needs to be determined, it is the interface that we use to look thru its neighbors
+					return &bestTuple.Interface.IP, udpAddr
+				} else {
+					// already has a src
+					return src, udpAddr
+				}
 			}
 		}
 		// no match found, drop packet
 		fmt.Println("no match 2")
-		return nil
+		return nil, nil
 	} else {
 		// hit default case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
 		fmt.Println("\nrecursive call here, ip = ")
 		fmt.Println(bestTuple.ip)
-		return stack.findPrefixMatch(bestTuple.ip)
+		return stack.findPrefixMatch(src, bestTuple.ip)
 	}
 }
 
@@ -275,7 +282,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
-		return stack.SendIP(hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
+		return stack.SendIP(&hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 	}
 	return nil
 }
@@ -287,8 +294,43 @@ func TestPacketHandler(packet *IPPacket) {
 		", Data: " + string(packet.Payload))
 }
 
-func RIPPacketHandler(packet *IPPacket) {
+func RIPPacketHandler(stack *IPStack, packet *IPPacket) {
+	ripPacket, err := rip.UnmarshalRIP(packet.Payload)
+	if (err != nil) {
+		fmt.Println("error unmarshaling packet payload in rip packet handler")
+		fmt.Println(err)
+		return
+	}
 
+	if (ripPacket.command == 1) {
+		// have received a rip request, need to send out an update:
+		destIP := packet.Header.Dst
+
+		ripUpdate := &rip.RIPPacket{
+			Command: 2,
+			Num_entries: len(stack.Forward_table),
+		}
+
+		entries := make([]rip.RIPEntry, ripUpdate.Num_entries)
+		for mask, tuple := range stack.Forward_table {
+			entry := rip.RIPEntry{
+				Cost: tuple.cost,
+				Address: tuple.ip,
+				Mask: mask,
+			}
+			entries = entries.append(entry)
+		}
+
+		ripUpdate.Entries = entries
+
+		ripBytes, err := rip.MarshalRIP(ripUpdate)
+		if (err != nil) {
+			fmt.Println("error marshaling rip packet in rip packet handler")
+			fmt.Println(err)
+			return 
+		}
+		stack.SendIP(nil, 16, destIP, 200, ripBytes)
+	}
 }
 
 func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) {

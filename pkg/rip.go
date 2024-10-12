@@ -88,3 +88,9 @@ func MarshalRIP(ripPacket *RIPPacket) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+func UnmarshalRIP(payload []byte) (*RIPPacket, error) {
+	command := payload[0:2]
+	numEntries := payload[2:4]
+	entries := payload[]
+}
