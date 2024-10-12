@@ -2,14 +2,14 @@ package protocol
 
 import (
 	"fmt"
-	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"github.com/google/netstack/tcpip/header"
 	"ip-ip-pa/lnxconfig"
-	"ip-ip-pa/rip"
 	"net"
 	"net/netip"
 	"strconv"
 	"sync"
+
+	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"github.com/google/netstack/tcpip/header"
 )
 
 const MAX_PACKET_SIZE = 1400
@@ -41,7 +41,7 @@ type IPStack struct {
 	RoutingType   lnxconfig.RoutingMode
 	Forward_table map[netip.Prefix]*ipCostInterfaceTuple // maps IP prefixes to ip-cost-interface tuple
 	Handler_table map[uint16]HandlerFunc                 // maps protocol numbers to handlers
-	Interfaces    map[string]*Interface                  // maps interface names to interfaces
+	Interfaces    map[netip.Addr]*Interface                  // maps interface names to interfaces
 	Mutex         sync.Mutex                             // for concurrency
 }
 
@@ -50,7 +50,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	stack.RoutingType = configInfo.RoutingMode
 	stack.Forward_table = make(map[netip.Prefix]*ipCostInterfaceTuple)
 	stack.Handler_table = make(map[uint16]HandlerFunc)
-	stack.Interfaces = make(map[string]*Interface)
+	stack.Interfaces = make(map[netip.Addr]*Interface)
 	stack.Mutex = sync.Mutex{}
 
 	// create interfaces to populate map of interfaces for IPStack struct
@@ -79,7 +79,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		newInterface.Conn = conn
 
 		// Map interface name to interface struct for ip stack struct- TODO maybe change this map key
-		stack.Interfaces[newInterface.Name] = &newInterface
+		stack.Interfaces[newInterface.IP] = &newInterface
 
 		// new neighbors map for new interface
 		newInterface.Neighbors = make(map[netip.Addr]netip.AddrPort)
@@ -88,7 +88,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	// for all the node's neighbors, loop through and add to correct interfaces map
 	for _, neighbor := range configInfo.Neighbors {
 		// This is saying "I can reach this neighbor through this interface lnxInterface"
-		interface_struct := stack.Interfaces[neighbor.InterfaceName]
+		interface_struct := stack.Interfaces[neighbor.DestAddr]
 		interface_struct.Neighbors[neighbor.DestAddr] = neighbor.UDPAddr
 	}
 
@@ -101,19 +101,21 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 	}
 
-	// Add default route entry
-	for prefix, address := range configInfo.StaticRoutes {
-		stack.Forward_table[prefix] = &ipCostInterfaceTuple{
-			ip:        address,
-			cost:      16,
-			Interface: nil,
+	// Add default route entry only if routing type is NOT RIP (aka NOT 2)
+	if (stack.RoutingType != 2) {
+		for prefix, address := range configInfo.StaticRoutes {
+			stack.Forward_table[prefix] = &ipCostInterfaceTuple{
+				ip:        address,
+				cost:      16,
+				Interface: nil,
+			}
 		}
 	}
 
 	return nil
 }
 
-func (stack *IPStack) SendIP(src *Interface, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
+func (stack *IPStack) SendIP(src netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Construct IP packet header
 	header := ipv4header.IPv4Header{
 		Version:  4,
@@ -126,7 +128,7 @@ func (stack *IPStack) SendIP(src *Interface, TTL int, dest netip.Addr, protocolN
 		TTL:      TTL,
 		Protocol: int(protocolNum),
 		Checksum: 0, // Should be 0 until checksum is computed
-		Src:      src.IP,
+		Src:      src,
 		Dst:      dest,
 		Options:  []byte{},
 	}
@@ -158,7 +160,8 @@ func (stack *IPStack) SendIP(src *Interface, TTL int, dest netip.Addr, protocolN
 	}
 
 	fmt.Println("in send, find prefix done")
-	bytesWritten, err := src.Conn.WriteToUDP(bytesToSend, destAddrPort)
+	// TODO
+	bytesWritten, err := stack.Interfaces[src].Conn.WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
 		return err
@@ -173,7 +176,7 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 	return checksumInv
 }
 
-func (stack *IPStack) findPrefixMatch(addr netip.Addr) *net.UDPAddr {
+func (stack *IPStack) findPrefixMatch(addr netip.Addr) *Interface {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
 
@@ -272,7 +275,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
-		return stack.SendIP(iface, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
+		return stack.SendIP(hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 	}
 	return nil
 }

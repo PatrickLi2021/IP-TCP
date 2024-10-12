@@ -35,16 +35,38 @@ func main() {
 	var stack *protocol.IPStack = &protocol.IPStack{}
 	stack.Initialize(*lnxConfig)
 
-	// Router is now online, so we need to send RIP request to all of its neighbors
+	// register test packet
+	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
+
+	// Router is now online, so we need to declare/initialize ripInstance specific struct
+	// send RIP request to all of its neighbors
+	if (stack.RoutingType == 2) {
+		ripInstance.Initialize(lnxConfig)
+		stack.RegisterRecvHandler(200, protocol.RIPPacketHandler)
+
+		// send rip request to all rip neighbors
+		for neighborIp := range ripInstance.NeighborRouters {
+			requestPacket := &rip.RIPPacket{
+				Command: 1,
+				Num_entries: 0,
+				Entries: []rip.RIPEntry{},
+			}
+
+			requestBytes, err := rip.MarshalRIP(requestPacket)
+			if (err != nil) {
+				fmt.Println(err)
+				return
+			}
+
+
+			stack.SendIP(16, neighborIp, 200, requestBytes)
+		}
+	}
 
 	// Start listening on all of its neighbors
 	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)
 	}
-
-	// Since this is a router, we want to register test AND rip protocol
-	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
-	stack.RegisterRecvHandler(200, protocol.RIPPacketHandler)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Enter command")
@@ -76,15 +98,6 @@ func main() {
 				continue
 			}
 
-			// Host will only have one interface
-			var iface *protocol.Interface
-
-			// Iterate through the map to get the key-value pair
-			for _, val := range stack.Interfaces {
-				iface = val
-				break
-			}
-			stack.SendIP(iface, 16, destIP, 0, []byte(message))
 		} else {
 			fmt.Println("Invalid command.")
 			continue

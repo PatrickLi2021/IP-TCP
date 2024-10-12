@@ -35,12 +35,16 @@ type RouteEntry struct {
 }
 
 type RipInstance struct {
-	neighborRouters []netip.Addr
+	NeighborRouters []netip.Addr
+	RipPeriodicUpdateRate time.Duration
+	RipTimeoutThreshold   time.Duration
 	mutex           sync.Mutex
 }
 
 func (ripInstance *RipInstance) Initialize(configInfo lnxconfig.IPConfig) {
-	ripInstance.neighborRouters = configInfo.RipNeighbors
+	ripInstance.NeighborRouters = configInfo.RipNeighbors
+	ripInstance.RipPeriodicUpdateRate = configInfo.RipPeriodicUpdateRate
+	ripInstance.RipTimeoutThreshold = configInfo.RipTimeoutThreshold
 }
 
 func (ripInstance *RipInstance) sendRipRequest(stack *protocol.IPStack) {
