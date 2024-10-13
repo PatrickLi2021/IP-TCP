@@ -4,10 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
-	"ip-ip-pa/pkg"
+	protocol "ip-ip-pa/pkg"
 	"net/netip"
 	"os"
 	"strings"
+	"time"
 )
 
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
@@ -16,6 +17,63 @@ func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 		stack.Receive(stack.Interfaces[iface.IP])
 	}
 }
+
+func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstance) {
+	// function to send router updates to rip neighbors every 5 seconds
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+
+			ripUpdate := &protocol.RIPPacket{
+				Command:     2,
+			}
+	
+			entries := make([]protocol.RIPEntry, 0)
+			for mask, tuple := range stack.Forward_table {
+				if (tuple.NextHop == nil) {
+					// default routes only
+					continue
+				}
+				switch tuple.NextHop[0].(type) {
+				case *protocol.Interface:
+					// for host local interfaces only
+					continue
+				}
+	
+				// Convert IP address into uint32
+				ipInteger, _, _ := protocol.ConvertToUint32(tuple.NextHop)
+	
+				// Convert prefix/mask into uint32
+				prefixInteger, prefixLen, _ := protocol.ConvertToUint32(mask)
+				entry := protocol.RIPEntry{
+					Cost:    uint32(tuple.Cost),
+					Address: ipInteger,
+					Mask:    prefixInteger,
+					MaskLen: prefixLen,
+				}
+				entries = append(entries, entry)
+			}
+	
+			ripUpdate.Entries = entries
+			ripUpdate.Num_entries = uint16(len(entries))
+	
+			ripBytes, err := protocol.MarshalRIP(ripUpdate)
+			if err != nil {
+				fmt.Println("error marshaling rip packet in rip packet handler")
+				fmt.Println(err)
+				return
+			}
+
+			for _, neighborIP := range ripInstance.NeighborRouters {
+				stack.SendIP(nil, 16, neighborIP, 200, ripBytes)
+			}
+		}
+	}
+}
+
 
 func main() {
 	if len(os.Args) != 3 {
@@ -65,6 +123,10 @@ func main() {
 			stack.SendIP(nil, 16, neighborIp, 200, requestBytes)
 		}
 	}
+
+	// thread to send router udpates to rip neighbors every 5 secs
+	go routerPeriodicSend(stack, ripInstance)
+
 	// Start listening on all of its interfaces
 	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)

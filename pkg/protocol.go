@@ -4,13 +4,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"github.com/google/netstack/tcpip/header"
 	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
 	"strconv"
 	"sync"
+
+	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"github.com/google/netstack/tcpip/header"
 )
 
 const MAX_PACKET_SIZE = 1400
@@ -31,9 +32,10 @@ type Interface struct {
 }
 
 type ipCostInterfaceTuple struct {
-	ip        netip.Addr
-	cost      uint32
-	Interface *Interface
+	IP        netip.Addr
+	Cost      uint32
+	NextHop []interface{} // for routers, will be IP, for hosts will be interface struct
+												// will always be length of one
 }
 
 type HandlerFunc = func(*IPPacket)
@@ -95,10 +97,12 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	}
 	for _, iface := range stack.Interfaces {
 		// Populate forwarding table with interfaces ON THIS NODE
+		nextHop := make([]interface{}, 0)
+		nextHop = append(nextHop, iface)
 		stack.Forward_table[iface.Prefix] = &ipCostInterfaceTuple{
-			ip:        iface.IP,
-			cost:      16,
-			Interface: iface,
+			IP:        iface.IP,
+			Cost:      16,
+			NextHop: nextHop,
 		}
 	}
 
@@ -106,9 +110,9 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	if stack.RoutingType != 2 {
 		for prefix, address := range configInfo.StaticRoutes {
 			stack.Forward_table[prefix] = &ipCostInterfaceTuple{
-				ip:        address,
-				cost:      16,
-				Interface: nil,
+				IP:        address,
+				Cost:      16,
+				NextHop: nil,
 			}
 		}
 	}
@@ -187,10 +191,16 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 }
 
 func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.Addr, *net.UDPAddr) {
+	fmt.Println("forwarding table in find prefix")
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
 
 	for pref, tuple := range stack.Forward_table {
+		fmt.Println(pref)
+		fmt.Println(tuple)
+		fmt.Println(tuple.IP.String())
+		fmt.Println(tuple.NextHop)
+		fmt.Println()
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
@@ -201,13 +211,24 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 
 	if bestTuple == nil {
 		// no match found, drop packet
+		fmt.Println("A")
 		return nil, nil
 	}
 
 	// check tuple to see if we hit default case and need to re-look up ip in forwarding table
-	if bestTuple.Interface != nil {
-		// it is local, so look up the dest ip in best tuple's neighbors table:
-		for ip, port := range bestTuple.Interface.Neighbors {
+
+	if bestTuple.NextHop == nil {
+		// hit default static route case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
+		// here)
+		fmt.Println("B")
+		fmt.Println(src)
+		fmt.Println(bestTuple.IP)
+		return stack.findPrefixMatch(src, bestTuple.IP)
+	}
+
+	switch nextHop := bestTuple.NextHop[0].(type) {
+	case *Interface:
+		for ip, port := range nextHop.Neighbors {
 			if ip == addr {
 				// Convert netip.AddrPort to *net.UDPAddr
 				udpAddr := &net.UDPAddr{
@@ -216,20 +237,26 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 				}
 				if src == nil {
 					// if src needs to be determined, it is the interface that we use to look thru its neighbors
-					return &bestTuple.Interface.IP, udpAddr
+					fmt.Println("C")
+					return &nextHop.IP, udpAddr
 				} else {
 					// already has a src
+					fmt.Println("D")
 					return src, udpAddr
 				}
 			}
 		}
 		// no match found, drop packet
+		fmt.Println("E")
 		return nil, nil
-	} else {
-		// hit default case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
-		// here)
-		return stack.findPrefixMatch(src, bestTuple.ip)
+
+	case netip.Addr:
+		// this is a route's next hop
+		fmt.Println("F")
+		return stack.findPrefixMatch(src, bestTuple.IP)
 	}
+
+	return nil, nil
 }
 
 func (stack *IPStack) Receive(iface *Interface) error {
@@ -309,18 +336,28 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 
 		ripUpdate := &RIPPacket{
 			Command:     2,
-			Num_entries: uint16(len(stack.Forward_table)),
 		}
 
-		entries := make([]RIPEntry, ripUpdate.Num_entries)
+		entries := make([]RIPEntry, 0)
 		for mask, tuple := range stack.Forward_table {
+
+			if (tuple.NextHop == nil) {
+				// default routes only
+				continue
+			}
+			switch tuple.NextHop[0].(type) {
+			case *Interface:
+				// for host local interfaces only
+				continue
+			}
+
 			// Convert IP address into uint32
-			ipInteger, _, _ := convertToUint32(tuple.ip)
+			ipInteger, _, _ := ConvertToUint32(tuple.IP)
 
 			// Convert prefix/mask into uint32
-			prefixInteger, prefixLen, _ := convertToUint32(mask)
+			prefixInteger, prefixLen, _ := ConvertToUint32(mask)
 			entry := RIPEntry{
-				Cost:    uint32(tuple.cost),
+				Cost:    uint32(tuple.Cost),
 				Address: ipInteger,
 				Mask:    prefixInteger,
 				MaskLen: prefixLen,
@@ -329,6 +366,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 		}
 
 		ripUpdate.Entries = entries
+		ripUpdate.Num_entries = uint16(len(entries))
 
 		ripBytes, err := MarshalRIP(ripUpdate)
 		if err != nil {
@@ -345,12 +383,34 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			entryMask, _ := uint32ToPrefix(entry.Mask, int(entry.MaskLen))
 			entryAddress, _ := uint32ToAddr(entry.Address)
 
-			stack.Forward_table[entryMask] = &ipCostInterfaceTuple{
-				ip:        entryAddress,
-				cost:      entry.Cost,
-				Interface: stack.Interfaces[entryAddress],
+			prevTuple, exists := stack.Forward_table[entryMask]
+			if (!exists) {
+				// entry from neighbor does not exist, add to table
+				nextHop := make([]interface{}, 0)
+				nextHop = append(nextHop, packet.Header.Src)
+				stack.Forward_table[entryMask] = &ipCostInterfaceTuple{
+					IP:        entryAddress,
+					Cost:      entry.Cost,
+					NextHop: nextHop, // TODO: nil
+				}
+			} else if (exists && entry.Cost < prevTuple.Cost) {
+				// entry exists and updated cost is lower than old, update table with new entry
+				stack.Forward_table[entryMask].Cost = entry.Cost
+			} else if (exists && entry.Cost > prevTuple.Cost) {
+				// updated cost greater than old cost
+				if (packet.Header.Src == prevTuple.NextHop[0]) {
+					// topology has changed, route has higher cost now, update table
+					nextHop := make([]interface{}, 0)
+					nextHop = append(nextHop, packet.Header.Src)
+					stack.Forward_table[entryMask].Cost = entry.Cost
+					stack.Forward_table[entryMask].NextHop = nextHop
+				}
 			}
+			// else new cost == old cost and dests are same, so refresh route
 		}
+
+		fmt.Println("forwarding table after rip packet handler")
+		fmt.Println(stack.Forward_table)
 	}
 }
 
@@ -409,7 +469,7 @@ func (stack *IPStack) Up(interfaceName string) {
 	}
 }
 
-func convertToUint32(input interface{}) (uint32, uint32, error) {
+func ConvertToUint32(input interface{}) (uint32, uint32, error) {
 	switch v := input.(type) {
 	case netip.Prefix:
 		if v.Addr().Is4() {
