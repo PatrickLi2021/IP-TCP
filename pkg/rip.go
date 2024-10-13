@@ -24,7 +24,6 @@ type RIPEntry struct {
 	Cost    uint32
 	Address uint32
 	Mask    uint32
-	MaskLen uint32
 }
 
 type RouteEntry struct {

@@ -33,26 +33,20 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 	
 			entries := make([]protocol.RIPEntry, 0)
 			for mask, tuple := range stack.Forward_table {
-				if (tuple.NextHop == nil) {
-					// default routes only
-					continue
-				}
-				switch tuple.NextHop[0].(type) {
-				case *protocol.Interface:
-					// for host local interfaces only
+				if (tuple.Cost == 0 && tuple.Interface == nil) {
+					// default routes
 					continue
 				}
 	
 				// Convert IP address into uint32
-				ipInteger, _, _ := protocol.ConvertToUint32(tuple.NextHop)
+				ipInteger, _, _ := protocol.ConvertToUint32(tuple.NextHopIP)
 	
 				// Convert prefix/mask into uint32
-				prefixInteger, prefixLen, _ := protocol.ConvertToUint32(mask)
+				prefixInteger, _, _ := protocol.ConvertToUint32(mask)
 				entry := protocol.RIPEntry{
 					Cost:    uint32(tuple.Cost),
 					Address: ipInteger,
 					Mask:    prefixInteger,
-					MaskLen: prefixLen,
 				}
 				entries = append(entries, entry)
 			}
@@ -97,6 +91,8 @@ func main() {
 
 	// register test packet
 	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
+	fmt.Println("in vrouter")
+	fmt.Println(stack.RoutingType)
 
 	// Router is now online, so we need to declare/initialize ripInstance specific struct
 	// send RIP request to all of its neighbors
