@@ -121,8 +121,10 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Find longest prefix match
 	srcIP, destAddrPort := stack.findPrefixMatch(src, dest)
-	fmt.Println("Here is where I'm sending my message to")
-	fmt.Println(destAddrPort)
+	if (protocolNum == 0) {
+		fmt.Println("Here is where I'm sending my message to")
+		fmt.Println(destAddrPort)
+	}
 	if destAddrPort == nil {
 		// no match found, drop packet
 		return nil
@@ -162,14 +164,22 @@ func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocol
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
+	if (protocolNum == 0) {
+		fmt.Println("BYTES TO SEND = ")
+		fmt.Println(bytesToSend)
+	}
 
 	// TODO
+	fmt.Println(stack.Interfaces)
+	fmt.Println(srcIP)
 	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
-	fmt.Printf("Sent %d bytes\n", bytesWritten)
+	if (protocolNum == 0) {
+		fmt.Printf("Sent %d bytes\n", bytesWritten)	
+	}
 	return nil
 }
 
@@ -182,8 +192,10 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.Addr, *net.UDPAddr) {
 	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
-
+	fmt.Println("\nin find prefix match")
 	for pref, tuple := range stack.Forward_table {
+		fmt.Println(pref)
+		fmt.Println(tuple)
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
@@ -191,10 +203,10 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 			}
 		}
 	}
-	fmt.Println(stack.Forward_table)
-	fmt.Println(bestTuple)
+
 	// no match found, drop packet
 	if bestTuple == nil {
+		fmt.Println("\nAAA")
 		return nil, nil
 	}
 
@@ -202,14 +214,18 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 	if bestTuple.Cost == 0 && bestTuple.Interface == nil {
 		// hit default static route case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
+		fmt.Println("\nBBB")
 		return stack.findPrefixMatch(src, bestTuple.NextHopIP)
+	}
+
+	if (bestTuple.Interface == nil) {
+		fmt.Println("IT IS NIL")
+		return stack.findPrefixMatch(nil, bestTuple.NextHopIP)
 	}
 
 	// have not hit a default catch all, so check all neighbors
 	for ip, port := range bestTuple.Interface.Neighbors {
-		fmt.Println("Messi")
 		if ip == addr {
-			fmt.Println("Ronaldo")
 			// Convert netip.AddrPort to *net.UDPAddr
 			udpAddr := &net.UDPAddr{
 				IP:   net.IP(port.Addr().AsSlice()),
@@ -217,9 +233,13 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 			}
 			if src == nil {
 				// if src needs to be determined, it is the interface that we use to look thru its neighbors
+				fmt.Println("\nCCC")
 				return &bestTuple.Interface.IP, udpAddr
 			} else {
 				// already has a src
+				fmt.Println("\nDDD")
+				fmt.Println(src)
+				fmt.Println(udpAddr)
 				return src, udpAddr
 			}
 		}
@@ -259,8 +279,6 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	// packet payload
 	message := buffer[hdrSize:]
 	// check packet's dest ip
-	fmt.Println("Here is the header dest")
-	fmt.Println(hdr.Dst)
 	if hdr.Dst == iface.IP {
 		// packet has reached destination
 
@@ -288,10 +306,7 @@ func TestPacketHandler(packet *IPPacket) {
 }
 
 func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
-	fmt.Println("I am inside the rippackethandler")
 	ripPacket, err := UnmarshalRIP(packet.Payload)
-	fmt.Println(packet.Header.Dst)
-	fmt.Println(ripPacket.Command)
 	if err != nil {
 		fmt.Println("error unmarshaling packet payload in rip packet handler")
 		fmt.Println(err)
@@ -299,7 +314,6 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 	}
 
 	if ripPacket.Command == 1 {
-		fmt.Println("Inside rippacket command = 1")
 		// Have received a RIP request, need to send out an update
 		destIP := packet.Header.Src
 
@@ -316,8 +330,6 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			}
 
 			// Convert IP address into uint32)
-			fmt.Println(prefix.Addr())
-			fmt.Println(prefix.Masked())
 			address, _, _ := ConvertToUint32(prefix.Addr())
 			mask, _, _ := ConvertToUint32(prefix.Masked())
 
@@ -330,7 +342,6 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 		}
 		ripUpdate.Entries = entries
 		ripUpdate.Num_entries = uint16(len(entries))
-		fmt.Println("Put the entries in my packet")
 
 		ripBytes, err := MarshalRIP(ripUpdate)
 		if err != nil {
@@ -338,15 +349,10 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			fmt.Println(err)
 			return
 		}
-		fmt.Println("About to send my update to")
-		fmt.Println(destIP)
-		fmt.Println(ripUpdate)
 		stack.SendIP(nil, 16, destIP, 200, ripBytes)
 	} else if ripPacket.Command == 2 {
 		// received response, will need to update routing table
-		fmt.Println("I have received a response and need to update my routing table now")
 		entryUpdates := ripPacket.Entries
-		fmt.Println(entryUpdates)
 		for i := 0; i < int(ripPacket.Num_entries); i++ {
 			entry := entryUpdates[i]
 			entryAddress, err := uint32ToAddr(entry.Address)
@@ -388,8 +394,6 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			}
 			// TODO: else new cost == old cost and dests are same, so refresh route
 		}
-		fmt.Println("Here is my updated routing table")
-		fmt.Println(stack.Forward_table)
 	}
 }
 
