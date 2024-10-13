@@ -12,7 +12,6 @@ import (
 
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	for {
-		fmt.Println("IN HERE")
 		// All logic for updating other router's tables is handled in receive()
 		stack.Receive(stack.Interfaces[iface.IP])
 	}
