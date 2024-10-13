@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
 	"net"
@@ -362,15 +361,12 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				fmt.Println(err)
 				return
 			}
-			entryPrefix, err := entryAddress.Prefix(entryMask.BitLen())
+			entryPrefix, err := entryAddress.Prefix(entryMask.BitLen() - 8)
 			if err != nil {
 				fmt.Println("error converting uint32 to net ip prefix")
 				fmt.Println(err)
 				return
 			}
-			fmt.Println(entryPrefix)
-			fmt.Println(entryMask)
-			fmt.Println(entryAddress)
 			prevTuple, exists := stack.Forward_table[entryPrefix]
 			if !exists {
 				// entry from neighbor does not exist, add to table
@@ -392,6 +388,8 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			}
 			// TODO: else new cost == old cost and dests are same, so refresh route
 		}
+		fmt.Println("Here is my updated routing table")
+		fmt.Println(stack.Forward_table)
 	}
 }
 
@@ -474,11 +472,8 @@ func uint32ToAddr(ipUint32 uint32) (netip.Addr, error) {
 	ip := make([]byte, 4)
 	binary.BigEndian.PutUint32(ip, ipUint32)
 
-	// Create a netip.Addr from the byte slice
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return netip.Addr{}, errors.New("could not create netip.addr")
-	}
+	// Create a netip.Addr from the byte slice using the 4-byte IPv4 constructor
+	addr := netip.AddrFrom4([4]byte{ip[3], ip[2], ip[1], ip[0]})
 	return addr, nil
 }
 
@@ -487,5 +482,5 @@ func uint32ToPrefix(ipUint32 uint32, prefixLen int) (netip.Prefix, error) {
 	if err != nil {
 		return netip.Prefix{}, err
 	}
-	return netip.PrefixFrom(addr, prefixLen), nil
+	return addr.Prefix(prefixLen)
 }
