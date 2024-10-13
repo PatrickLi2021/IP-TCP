@@ -28,19 +28,19 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 		case <-ticker.C:
 
 			ripUpdate := &protocol.RIPPacket{
-				Command:     2,
+				Command: 2,
 			}
-	
+
 			entries := make([]protocol.RIPEntry, 0)
 			for mask, tuple := range stack.Forward_table {
-				if (tuple.Cost == 0 && tuple.Interface == nil) {
+				if tuple.Cost == 0 && tuple.Interface == nil {
 					// default routes
 					continue
 				}
-	
+
 				// Convert IP address into uint32
 				ipInteger, _, _ := protocol.ConvertToUint32(tuple.NextHopIP)
-	
+
 				// Convert prefix/mask into uint32
 				prefixInteger, _, _ := protocol.ConvertToUint32(mask)
 				entry := protocol.RIPEntry{
@@ -50,10 +50,10 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 				}
 				entries = append(entries, entry)
 			}
-	
+
 			ripUpdate.Entries = entries
 			ripUpdate.Num_entries = uint16(len(entries))
-	
+
 			ripBytes, err := protocol.MarshalRIP(ripUpdate)
 			if err != nil {
 				fmt.Println("error marshaling rip packet in rip packet handler")
@@ -67,7 +67,6 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 		}
 	}
 }
-
 
 func main() {
 	if len(os.Args) != 3 {
@@ -115,13 +114,13 @@ func main() {
 				fmt.Println(err)
 				return
 			}
-
+			fmt.Println(neighborIp)
 			stack.SendIP(nil, 16, neighborIp, 200, requestBytes)
 		}
 	}
 
 	// thread to send router udpates to rip neighbors every 5 secs
-	go routerPeriodicSend(stack, ripInstance)
+	// go routerPeriodicSend(stack, ripInstance)
 
 	// Start listening on all of its interfaces
 	for _, iface := range stack.Interfaces {
