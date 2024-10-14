@@ -77,15 +77,7 @@ func main() {
 				continue
 			}
 
-			// Host will only have one interface
-			var iface *protocol.Interface
-
-			// Iterate through the map to get the key-value pair
-			for _, val := range stack.Interfaces {
-				iface = val
-				break
-			}
-			stack.SendIP(&iface.IP, 16, destIP, 0, []byte(message))
+			stack.SendIP(16, destIP, 0, []byte(message))
 		} else {
 			fmt.Println("Invalid command.")
 			continue

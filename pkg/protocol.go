@@ -28,6 +28,7 @@ type Interface struct {
 	Udp       *net.UDPAddr                  // the UDP address of the interface on this host
 	Down      bool                          // whether the interface is down or not
 	Conn      *net.UDPConn                  // listen to incoming UDP packets
+	Mutex 		sync.RWMutex
 }
 
 type ipCostInterfaceTuple struct {
@@ -65,6 +66,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			IP:     lnxInterface.AssignedIP,
 			Prefix: lnxInterface.AssignedPrefix,
 			Down:   false,
+			Mutex:  sync.RWMutex{},
 		}
 		// Creating UDP conn for each interface
 		serverAddr, err := net.ResolveUDPAddr("udp4", lnxInterface.UDPAddr.String())
@@ -115,11 +117,11 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			}
 		}
 	}
-
+	fmt.Println(stack.NameToInterface)
 	return nil
 }
 
-func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
+func (stack *IPStack) SendIP(TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Find longest prefix match
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
 	if protocolNum == 0 {
@@ -128,6 +130,11 @@ func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocol
 	}
 	if destAddrPort == nil {
 		// no match found, drop packet
+		return nil
+	}
+	iface, exists := stack.Interfaces[*srcIP]
+	if (exists && iface.Down) {
+		// drop packet, if src is down
 		return nil
 	}
 	// Construct IP packet header
@@ -242,8 +249,17 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 }
 
 func (stack *IPStack) Receive(iface *Interface) error {
+	if (iface.Down) {
+		// if down can't receive
+		return nil
+	}
+	fmt.Println("Haaland")
+	fmt.Println(iface.Down)
+	fmt.Println(iface.Name)
 	buffer := make([]byte, MAX_PACKET_SIZE)
-	_, _, err := iface.Conn.ReadFromUDP(buffer)
+	bytes, _, err := iface.Conn.ReadFromUDP(buffer)
+	fmt.Println("in receive, bytes read = ")
+	fmt.Println(bytes)
 	if err != nil {
 		fmt.Println(err)
 		return err
@@ -286,9 +302,10 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
-		return stack.SendIP(&hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
+		return stack.SendIP(hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 	}
 	return nil
+	
 }
 
 func TestPacketHandler(packet *IPPacket) {
@@ -342,7 +359,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			fmt.Println(err)
 			return
 		}
-		stack.SendIP(nil, 16, destIP, 200, ripBytes)
+		stack.SendIP(16, destIP, 200, ripBytes)
 	} else if ripPacket.Command == 2 {
 		// received response, will need to update routing table
 		entryUpdates := ripPacket.Entries
@@ -434,12 +451,11 @@ func (stack *IPStack) Lr() string {
 }
 
 func (stack *IPStack) Down(interfaceName string) {
-	// Close the interface conn
-	iface := stack.NameToInterface[interfaceName]
-	iface.Conn.Close()
-
 	// Set down flag in interface to true
-	iface.Down = true
+	iface, exists := stack.NameToInterface[interfaceName]
+	if (exists) {
+		iface.Down = true
+	}
 }
 
 func (stack *IPStack) Up(interfaceName string) {

@@ -62,7 +62,7 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 			}
 
 			for _, neighborIP := range ripInstance.NeighborRouters {
-				stack.SendIP(nil, 16, neighborIP, 200, ripBytes)
+				stack.SendIP(16, neighborIP, 200, ripBytes)
 			}
 		}
 	}
@@ -107,7 +107,7 @@ func main() {
 				fmt.Println(err)
 				return
 			}
-			stack.SendIP(nil, 16, neighborIp, 200, requestBytes)
+			stack.SendIP(16, neighborIp, 200, requestBytes)
 		}
 	}
 
@@ -152,7 +152,7 @@ func main() {
 				continue
 			}
 
-			stack.SendIP(nil, 16, destIP, 0, []byte(message))
+			stack.SendIP(16, destIP, 0, []byte(message))
 
 		} else {
 			fmt.Println("Invalid command.")
