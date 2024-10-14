@@ -53,7 +53,7 @@ func main() {
 			fmt.Println(stack.Ln())
 
 		} else if userInput == "lr" {
-			// TODO
+			fmt.Println(stack.Lr())
 
 		} else if userInput[0:4] == "down" {
 			interfaceName := userInput[5:]

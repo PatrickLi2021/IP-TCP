@@ -34,6 +34,7 @@ type ipCostInterfaceTuple struct {
 	NextHopIP netip.Addr
 	Cost      uint32
 	Interface *Interface
+	Type      string
 }
 
 type HandlerFunc = func(*IPPacket)
@@ -121,7 +122,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Find longest prefix match
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
-	if (protocolNum == 0) {
+	if protocolNum == 0 {
 		fmt.Println("Here is where I'm sending my message to")
 		fmt.Println(destAddrPort)
 	}
@@ -164,7 +165,7 @@ func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocol
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
-	if (protocolNum == 0) {
+	if protocolNum == 0 {
 		fmt.Println("BYTES TO SEND = ")
 		fmt.Println(bytesToSend)
 	}
@@ -177,8 +178,8 @@ func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocol
 		fmt.Println(err)
 		return err
 	}
-	if (protocolNum == 0) {
-		fmt.Printf("Sent %d bytes\n", bytesWritten)	
+	if protocolNum == 0 {
+		fmt.Printf("Sent %d bytes\n", bytesWritten)
 	}
 	return nil
 }
@@ -211,7 +212,7 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 		fmt.Println("\nAAA")
 		return nil, nil
 	}
-	
+
 	if bestTuple.Cost == 0 && bestTuple.Interface == nil {
 		// hit default static route case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
@@ -219,7 +220,7 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 		return stack.findPrefixMatch(bestTuple.NextHopIP)
 	}
 
-	if (bestTuple.Interface == nil) {
+	if bestTuple.Interface == nil {
 		return stack.findPrefixMatch(bestTuple.NextHopIP)
 	}
 
@@ -395,26 +396,26 @@ func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc Handl
 
 // REPL commands
 func (stack *IPStack) Li() string {
-	var res = "Name Addr/Prefix State"
+	var res = "Name Addr/Prefix  State"
 	for _, iface := range stack.Interfaces {
-		res += "\n" + iface.Name + " " + iface.Prefix.String()
+		res += "\n" + iface.Name + "  " + iface.Prefix.String()
 		if iface.Down {
-			res += " down"
+			res += "  down"
 		} else {
-			res += " up"
+			res += "  up"
 		}
 	}
 	return res
 }
 
 func (stack *IPStack) Ln() string {
-	var res = "Iface VIP UDPAddr"
+	var res = "Iface VIP        UDPAddr"
 	for _, iface := range stack.Interfaces {
 		if iface.Down {
 			continue
 		} else {
 			for neighborIp, neighborAddrPort := range iface.Neighbors {
-				res += "\n" + iface.Name + " " + neighborIp.String() + " " + neighborAddrPort.String()
+				res += "\n" + iface.Name + "   " + neighborIp.String() + "   " + neighborAddrPort.String()
 			}
 		}
 	}
@@ -422,7 +423,14 @@ func (stack *IPStack) Ln() string {
 }
 
 func (stack *IPStack) Lr() string {
-	return ""
+	fmt.Println("in here")
+	fmt.Println(stack.Forward_table)
+	var res = "T     Prefix     Next hop    Cost"
+	for prefix, ipCostIfaceTuple := range stack.Forward_table {
+		cost_string := strconv.FormatUint(uint64(ipCostIfaceTuple.Cost), 10)
+		res += "\n" + prefix.String() + "   " + ipCostIfaceTuple.NextHopIP.String() + "   " + cost_string
+	}
+	return res
 }
 
 func (stack *IPStack) Down(interfaceName string) {
