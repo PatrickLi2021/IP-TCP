@@ -1,16 +1,16 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"github.com/google/netstack/tcpip/header"
 	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
 	"strconv"
 	"sync"
-
-	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"github.com/google/netstack/tcpip/header"
 )
 
 const MAX_PACKET_SIZE = 1400
@@ -28,7 +28,7 @@ type Interface struct {
 	Udp       *net.UDPAddr                  // the UDP address of the interface on this host
 	Down      bool                          // whether the interface is down or not
 	Conn      *net.UDPConn                  // listen to incoming UDP packets
-	Mutex 		sync.RWMutex
+	Mutex     sync.RWMutex
 }
 
 type ipCostInterfaceTuple struct {
@@ -133,7 +133,7 @@ func (stack *IPStack) SendIP(TTL int, dest netip.Addr, protocolNum uint16, data 
 		return nil
 	}
 	iface, exists := stack.Interfaces[*srcIP]
-	if (exists && iface.Down) {
+	if exists && iface.Down {
 		// drop packet, if src is down
 		return nil
 	}
@@ -172,6 +172,7 @@ func (stack *IPStack) SendIP(TTL int, dest netip.Addr, protocolNum uint16, data 
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
+	bytesToSend = bytes.TrimRight(bytesToSend, "\x00")
 	if protocolNum == 0 {
 		fmt.Println("BYTES TO SEND = ")
 		fmt.Println(bytesToSend)
@@ -249,15 +250,12 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 }
 
 func (stack *IPStack) Receive(iface *Interface) error {
-	if (iface.Down) {
+	buffer := make([]byte, MAX_PACKET_SIZE)
+	bytes, _, err := iface.Conn.ReadFromUDP(buffer)
+	if iface.Down {
 		// if down can't receive
 		return nil
 	}
-	fmt.Println("Haaland")
-	fmt.Println(iface.Down)
-	fmt.Println(iface.Name)
-	buffer := make([]byte, MAX_PACKET_SIZE)
-	bytes, _, err := iface.Conn.ReadFromUDP(buffer)
 	fmt.Println("in receive, bytes read = ")
 	fmt.Println(bytes)
 	if err != nil {
@@ -305,7 +303,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		return stack.SendIP(hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 	}
 	return nil
-	
+
 }
 
 func TestPacketHandler(packet *IPPacket) {
@@ -453,7 +451,7 @@ func (stack *IPStack) Lr() string {
 func (stack *IPStack) Down(interfaceName string) {
 	// Set down flag in interface to true
 	iface, exists := stack.NameToInterface[interfaceName]
-	if (exists) {
+	if exists {
 		iface.Down = true
 	}
 }
