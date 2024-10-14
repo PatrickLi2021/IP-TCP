@@ -120,7 +120,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 
 func (stack *IPStack) SendIP(src *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// Find longest prefix match
-	srcIP, destAddrPort := stack.findPrefixMatch(src, dest)
+	srcIP, destAddrPort := stack.findPrefixMatch(dest)
 	if (protocolNum == 0) {
 		fmt.Println("Here is where I'm sending my message to")
 		fmt.Println(destAddrPort)
@@ -189,8 +189,9 @@ func ComputeChecksum(headerBytes []byte) uint16 {
 	return checksumInv
 }
 
-func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.Addr, *net.UDPAddr) {
-	var longestMatch netip.Prefix // Changed to netip.Prefix instead of *netip.Prefix
+func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAddr) {
+	// searching for longest prefix match
+	var longestMatch netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
 	fmt.Println("\nin find prefix match")
 	for pref, tuple := range stack.Forward_table {
@@ -206,21 +207,20 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 
 	// no match found, drop packet
 	if bestTuple == nil {
+		// should never reach this
 		fmt.Println("\nAAA")
 		return nil, nil
 	}
-
-	// check tuple to see if we hit default case and need to re-look up ip in forwarding table
+	
 	if bestTuple.Cost == 0 && bestTuple.Interface == nil {
 		// hit default static route case, make exactly one additional lookup in the table (we are guaranteed to make at most 2 calls
 		// here)
 		fmt.Println("\nBBB")
-		return stack.findPrefixMatch(src, bestTuple.NextHopIP)
+		return stack.findPrefixMatch(bestTuple.NextHopIP)
 	}
 
 	if (bestTuple.Interface == nil) {
-		fmt.Println("IT IS NIL")
-		return stack.findPrefixMatch(nil, bestTuple.NextHopIP)
+		return stack.findPrefixMatch(bestTuple.NextHopIP)
 	}
 
 	// have not hit a default catch all, so check all neighbors
@@ -231,20 +231,12 @@ func (stack *IPStack) findPrefixMatch(src *netip.Addr, addr netip.Addr) (*netip.
 				IP:   net.IP(port.Addr().AsSlice()),
 				Port: int(port.Port()),
 			}
-			if src == nil {
-				// if src needs to be determined, it is the interface that we use to look thru its neighbors
-				fmt.Println("\nCCC")
-				return &bestTuple.Interface.IP, udpAddr
-			} else {
-				// already has a src
-				fmt.Println("\nDDD")
-				fmt.Println(src)
-				fmt.Println(udpAddr)
-				return src, udpAddr
-			}
+			return &bestTuple.Interface.IP, udpAddr
 		}
 	}
-	// no match found, drop packet
+
+	// no match found in neighbors
+	// should never reach here
 	return nil, nil
 }
 
