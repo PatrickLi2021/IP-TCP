@@ -252,6 +252,8 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 func (stack *IPStack) Receive(iface *Interface) error {
 	buffer := make([]byte, MAX_PACKET_SIZE)
 	bytes, _, err := iface.Conn.ReadFromUDP(buffer)
+	fmt.Println("after the read")
+	fmt.Println(iface.Down)
 	if iface.Down {
 		// if down can't receive
 		return nil
@@ -457,12 +459,9 @@ func (stack *IPStack) Down(interfaceName string) {
 }
 
 func (stack *IPStack) Up(interfaceName string) {
-	// Set interface status to active as long as interface was down in the first place
-	iface := stack.NameToInterface[interfaceName]
-	if iface.Down {
+	iface, exists := stack.NameToInterface[interfaceName]
+	if exists {
 		iface.Down = false
-		// Start listening again
-		iface.Conn, _ = net.ListenUDP("udp4", iface.Udp)
 	}
 }
 

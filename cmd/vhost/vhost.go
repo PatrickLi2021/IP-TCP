@@ -15,7 +15,11 @@ func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	for {
 		stack.Receive(stack.Interfaces[iface.IP])
 	}
+}
 
+func isValidUpDownCommand(userInput string) bool {
+	words := strings.Fields(userInput)
+	return len(words) == 2
 }
 
 func main() {
@@ -55,11 +59,11 @@ func main() {
 		} else if userInput == "lr" {
 			fmt.Println(stack.Lr())
 
-		} else if userInput[0:4] == "down" {
+		} else if userInput[0:4] == "down" && isValidUpDownCommand(userInput) {
 			interfaceName := userInput[5:]
 			stack.Down(interfaceName)
 
-		} else if userInput == "up" {
+		} else if userInput[0:2] == "up" && isValidUpDownCommand(userInput) {
 			interfaceName := userInput[3:]
 			stack.Up(interfaceName)
 
