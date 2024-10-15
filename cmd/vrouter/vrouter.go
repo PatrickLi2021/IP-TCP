@@ -130,11 +130,11 @@ func main() {
 			fmt.Println(stack.Ln())
 		} else if userInput == "lr" {
 			// TODO
-		} else if userInput == "down" {
+		} else if userInput[0:4] == "down" {
 			interfaceName := userInput[5:]
 			stack.Down(interfaceName)
 
-		} else if userInput == "up" {
+		} else if userInput[0:2] == "up" {
 			interfaceName := userInput[3:]
 			stack.Up(interfaceName)
 
