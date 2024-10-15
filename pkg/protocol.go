@@ -105,7 +105,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 			NextHopIP: iface.IP,
 			Cost:      0,
 			Interface: iface,
-			Type: "L",
+			Type:      "L",
 		}
 	}
 
@@ -116,7 +116,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 				NextHopIP: address,
 				Cost:      0, // TODO
 				Interface: nil,
-				Type: "R",
+				Type:      "R",
 			}
 		}
 	}
@@ -126,8 +126,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, protocolNum uint16, data []byte) error {
 	// check if sending to itself
 	for ip := range stack.Interfaces {
-		fmt.Println(ip)
-		if (ip == dest) {
+		if ip == dest {
 			// sending to itself, so call callback
 			packet := &IPPacket{
 				Header: ipv4header.IPv4Header{
@@ -153,9 +152,6 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	}
 	// Find longest prefix match
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
-	fmt.Println("in send ip, src = ")
-	fmt.Println(*srcIP)
-	fmt.Println(destAddrPort)
 	if destAddrPort == nil {
 		// no match found, drop packet
 		return nil
@@ -166,7 +162,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 		return nil
 	}
 
-	if (originalSrc == nil) {
+	if originalSrc == nil {
 		originalSrc = srcIP
 	}
 
@@ -241,7 +237,6 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 	// no match found, drop packet
 	if bestTuple == nil {
 		// should never reach this
-		fmt.Println("A")
 		return nil, nil
 	}
 
@@ -270,7 +265,6 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 
 	// no match found in neighbors
 	// should never reach here
-	fmt.Println("D")
 	return nil, nil
 }
 
@@ -312,13 +306,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 
 	// check packet's dest ip
 	correctDest := hdr.Dst == iface.IP
-	fmt.Println("in receive, current iface ip = ")
-	fmt.Println(iface.IP)
-	fmt.Println("dest ip = ")
-	fmt.Println(hdr.Dst)
-	fmt.Println("neighbors")
 	for interIP, _ := range stack.Interfaces {
-		fmt.Println(interIP)
 		if interIP == hdr.Dst {
 			correctDest = true
 			break
@@ -475,8 +463,6 @@ func (stack *IPStack) Ln() string {
 }
 
 func (stack *IPStack) Lr() string {
-	fmt.Println("in here")
-	fmt.Println(stack.Forward_table)
 	var res = "T     Prefix     Next hop    Cost"
 	for prefix, ipCostIfaceTuple := range stack.Forward_table {
 		cost_string := strconv.FormatUint(uint64(ipCostIfaceTuple.Cost), 10)
