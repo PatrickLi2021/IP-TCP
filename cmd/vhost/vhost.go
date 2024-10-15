@@ -81,7 +81,7 @@ func main() {
 				continue
 			}
 
-			stack.SendIP(16, destIP, 0, []byte(message))
+			stack.SendIP(nil, 16, destIP, 0, []byte(message))
 		} else {
 			fmt.Println("Invalid command.")
 			continue
