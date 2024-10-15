@@ -394,7 +394,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			fmt.Println(err)
 			return
 		}
-		stack.SendIP(nil, 16, destIP, 200, ripBytes)
+		stack.SendIP(nil, 31, destIP, 200, ripBytes)
 	} else if ripPacket.Command == 2 {
 		// received response, will need to update routing table
 		entryUpdates := ripPacket.Entries
