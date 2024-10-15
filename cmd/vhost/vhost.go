@@ -17,11 +17,6 @@ func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	}
 }
 
-func isValidUpDownCommand(userInput string) bool {
-	words := strings.Fields(userInput)
-	return len(words) == 2
-}
-
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Println("Usage: ./vhost --config <lnx file>")
@@ -59,11 +54,11 @@ func main() {
 		} else if userInput == "lr" {
 			fmt.Println(stack.Lr())
 
-		} else if userInput[0:4] == "down" && isValidUpDownCommand(userInput) {
+		} else if len(userInput) >= 6 && userInput[0:4] == "down" {
 			interfaceName := userInput[5:]
 			stack.Down(interfaceName)
 
-		} else if userInput[0:2] == "up" && isValidUpDownCommand(userInput) {
+		} else if len(userInput) >= 4 && userInput[0:2] == "up" {
 			interfaceName := userInput[3:]
 			stack.Up(interfaceName)
 
