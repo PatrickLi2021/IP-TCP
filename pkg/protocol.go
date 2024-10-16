@@ -468,6 +468,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				// entry exists and updated cost is lower than old, update table with new entry
 				stack.Mutex.Lock()
 				stack.Forward_table[entryPrefix].Cost = entry.Cost
+				stack.Forward_table[entryPrefix].LastRefresh = time.Now()
 				stack.Mutex.Unlock()
 				entry.Cost = entry.Cost + 1
 				newEntries = append(newEntries, entry)
@@ -478,12 +479,15 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 					stack.Mutex.Lock()
 					stack.Forward_table[entryPrefix].Cost = entry.Cost
 					stack.Forward_table[entryPrefix].NextHopIP = packet.Header.Src
+					stack.Forward_table[entryPrefix].LastRefresh = time.Now()
 					stack.Mutex.Unlock()
 					entry.Cost = entry.Cost + 1
 					newEntries = append(newEntries, entry)
 				}
+			} else if (exists && entry.Cost + 1 == prevTuple.Cost && packet.Header.Src == prevTuple.NextHopIP) {
+				// repeat of same route, no update, but refresh time
+				prevTuple.LastRefresh = time.Now()
 			}
-			// TODO: else new cost == old cost and dests are same, so refresh route
 		}
 
 		// handles triggered updates
