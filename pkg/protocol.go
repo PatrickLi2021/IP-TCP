@@ -421,6 +421,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 
 		// received response, will need to update routing table
 		entryUpdates := ripPacket.Entries
+		stack.Mutex.Lock()
 		for i := 0; i < int(ripPacket.Num_entries); i++ {
 			entry := entryUpdates[i]
 			entryAddress := netip.IPv4Unspecified()
@@ -443,12 +444,9 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				fmt.Println(err)
 				return
 			}
-			stack.Mutex.RLock()
 			prevTuple, exists := stack.Forward_table[entryPrefix]
-			stack.Mutex.RUnlock()
 			if !exists {
 				// entry from neighbor does not exist, add to table
-				stack.Mutex.Lock()
 				stack.Forward_table[entryPrefix] = &ipCostInterfaceTuple{
 					NextHopIP:   packet.Header.Src,
 					Cost:        entry.Cost + 1,
@@ -456,7 +454,6 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 					Type:        "R",
 					LastRefresh: time.Now(),
 				}
-				stack.Mutex.Unlock()
 				fmt.Println("received new route from ")
 				fmt.Println(packet.Header.Src)
 				fmt.Println("prefix = ")
@@ -466,21 +463,17 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				newEntries = append(newEntries, entry)
 			} else if exists && entry.Cost+1 < prevTuple.Cost {
 				// entry exists and updated cost is lower than old, update table with new entry
-				stack.Mutex.Lock()
 				stack.Forward_table[entryPrefix].Cost = entry.Cost
 				stack.Forward_table[entryPrefix].LastRefresh = time.Now()
-				stack.Mutex.Unlock()
 				entry.Cost = entry.Cost + 1
 				newEntries = append(newEntries, entry)
 			} else if exists && entry.Cost+1 > prevTuple.Cost {
 				// updated cost greater than old cost
 				if packet.Header.Src == prevTuple.NextHopIP {
 					// topology has changed, route has higher cost now, update table
-					stack.Mutex.Lock()
 					stack.Forward_table[entryPrefix].Cost = entry.Cost
 					stack.Forward_table[entryPrefix].NextHopIP = packet.Header.Src
 					stack.Forward_table[entryPrefix].LastRefresh = time.Now()
-					stack.Mutex.Unlock()
 					entry.Cost = entry.Cost + 1
 					newEntries = append(newEntries, entry)
 				}
@@ -489,6 +482,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				prevTuple.LastRefresh = time.Now()
 			}
 		}
+		stack.Mutex.Unlock()
 
 		// handles triggered updates
 		ripUpdate := &RIPPacket{
