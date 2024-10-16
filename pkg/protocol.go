@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"strconv"
 	"sync"
+	"time"
 
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
 	"github.com/google/netstack/tcpip/header"
@@ -37,6 +38,7 @@ type ipCostInterfaceTuple struct {
 	Cost      uint32
 	Interface *Interface
 	Type      string
+	LastRefresh time.Time
 }
 
 type HandlerFunc = func(*IPPacket)
