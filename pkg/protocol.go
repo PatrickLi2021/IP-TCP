@@ -85,7 +85,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		newInterface.Udp = serverAddr
 		newInterface.Conn = conn
 
-		// Map interface name to interface struct for ip stack struct- TODO maybe change this map key
+		// Map interface name and ip to interface struct for ip stack struct
 		stack.Interfaces[newInterface.IP] = &newInterface
 		stack.NameToInterface[newInterface.Name] = &newInterface
 
@@ -120,7 +120,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		for prefix, address := range configInfo.StaticRoutes {
 			stack.Forward_table[prefix] = &ipCostInterfaceTuple{
 				NextHopIP:   address,
-				Cost:        0, // TODO
+				Cost:        0, 
 				Interface:   nil,
 				Type:        "S",
 			}
@@ -299,7 +299,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	hdr, err := ipv4header.ParseHeader(buffer)
 	if err != nil {
 		fmt.Println("Error parsing header", err)
-		return nil // TODO? what to do? node should not crash or exit, instead just drop message and return to processing
+		return nil 
 	}
 
 	if hdr.Protocol == 0 {

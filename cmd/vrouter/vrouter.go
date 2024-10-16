@@ -184,8 +184,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 		case <-ticker.C:
 			deletedEntries := make([]protocol.RIPEntry, 0)
 			// Go through every route in the router's forwarding table
-			// stack.Mutex.Lock()
-			// TODO ^^^^
+			stack.Mutex.Lock()
 			for prefix, iFaceTuple := range stack.Forward_table {
 				if (iFaceTuple.Type == "L" || iFaceTuple.Type == "S") {
 					// skip over local routes and static, default routes
@@ -213,6 +212,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					deletedEntries = append(deletedEntries, ripEntry)
 				}
 			}
+			stack.Mutex.Unlock()
 
 			// send triggered update, don't account for split horizon, because all changed routes have cost 16
 			if (len(deletedEntries) > 0) {
@@ -233,6 +233,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 			}
 
 			// delete expired routes from forwarding table
+			stack.Mutex.Lock()
 			for _, entry := range deletedEntries {
 				entryAddress := netip.IPv4Unspecified()
 				entryAddress, err := protocol.Uint32ToAddr(entry.Address, entryAddress)
@@ -255,7 +256,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 				// TODO ^^^^ -8 is janky
 				delete(stack.Forward_table, entryPrefix)
 			}
-			// stack.Mutex.Unlock()
+			stack.Mutex.Unlock()
 		}
 
 	}
