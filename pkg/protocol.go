@@ -124,8 +124,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 				NextHopIP:   address,
 				Cost:        0, // TODO
 				Interface:   nil,
-				Type:        "R",
-				LastRefresh: time.Now(),
+				Type:        "S",
 			}
 		}
 	}
