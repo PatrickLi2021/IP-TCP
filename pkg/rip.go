@@ -109,7 +109,3 @@ func UnmarshalRIP(payload []byte) (*RIPPacket, error) {
 	}
 	return packet, nil
 }
-
-func (stack *IPStack) PeriodicUpdate(dest *netip.Addr) {
-
-}

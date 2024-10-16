@@ -34,10 +34,10 @@ type Interface struct {
 }
 
 type ipCostInterfaceTuple struct {
-	NextHopIP netip.Addr
-	Cost      uint32
-	Interface *Interface
-	Type      string
+	NextHopIP   netip.Addr
+	Cost        uint32
+	Interface   *Interface
+	Type        string
 	LastRefresh time.Time
 }
 
@@ -50,7 +50,7 @@ type IPStack struct {
 	Interfaces      map[netip.Addr]*Interface              // maps interface names to interfaces
 	Mutex           sync.RWMutex                           // for concurrency
 	NameToInterface map[string]*Interface                  // maps name to interface for REPL commands
-	RipNeighbors 		[]netip.Addr
+	RipNeighbors    []netip.Addr
 }
 
 func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
@@ -113,7 +113,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	}
 
 	// Add rip neighbors only if routing type IS RIP
-	if (stack.RoutingType == 2) {
+	if stack.RoutingType == 2 {
 		stack.RipNeighbors = configInfo.RipNeighbors
 	}
 
@@ -121,10 +121,11 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	if stack.RoutingType != 2 {
 		for prefix, address := range configInfo.StaticRoutes {
 			stack.Forward_table[prefix] = &ipCostInterfaceTuple{
-				NextHopIP: address,
-				Cost:      0, // TODO
-				Interface: nil,
-				Type:      "R",
+				NextHopIP:   address,
+				Cost:        0, // TODO
+				Interface:   nil,
+				Type:        "R",
+				LastRefresh: time.Now(),
 			}
 		}
 	}
@@ -175,7 +176,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 		// drop packet, if src is down
 		return nil
 	}
-	if (protocolNum==0) {
+	if protocolNum == 0 {
 		fmt.Println("in send ip, dest = ")
 		fmt.Println(destAddrPort)
 	}
@@ -243,6 +244,7 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 	var longestMatch netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
 	// fmt.Println("in find prefix, forward table = ")
+	stack.Mutex.RLock()
 	for pref, tuple := range stack.Forward_table {
 		// fmt.Println(pref)
 		// fmt.Println(tuple.NextHopIP)
@@ -253,6 +255,7 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 			}
 		}
 	}
+	stack.Mutex.RUnlock()
 	fmt.Println()
 
 	// no match found, drop packet
@@ -306,7 +309,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		return nil // TODO? what to do? node should not crash or exit, instead just drop message and return to processing
 	}
 
-	if (hdr.Protocol == 0) {
+	if hdr.Protocol == 0 {
 		fmt.Println("in receieve")
 	}
 	hdrSize := hdr.Len
@@ -379,13 +382,14 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 		}
 
 		entries := make([]RIPEntry, 0)
+		stack.Mutex.RLock()
 		for prefix, tuple := range stack.Forward_table {
 
 			if tuple.Type == "S" {
 				// forward table entry is a default route only, we don't send to other routers
 				continue
 			}
-			if (tuple.NextHopIP == destIP) {
+			if tuple.NextHopIP == destIP {
 				// implement split horizon, don't send route that it learned from that node
 				continue
 			}
@@ -401,6 +405,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			}
 			entries = append(entries, entry)
 		}
+		stack.Mutex.RUnlock()
 		ripUpdate.Entries = entries
 		ripUpdate.Num_entries = uint16(len(entries))
 
@@ -439,15 +444,20 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				fmt.Println(err)
 				return
 			}
+			stack.Mutex.RLock()
 			prevTuple, exists := stack.Forward_table[entryPrefix]
+			stack.Mutex.RUnlock()
 			if !exists {
 				// entry from neighbor does not exist, add to table
+				stack.Mutex.Lock()
 				stack.Forward_table[entryPrefix] = &ipCostInterfaceTuple{
-					NextHopIP: packet.Header.Src,
-					Cost:      entry.Cost + 1,
-					Interface: nil,
-					Type: "R",
+					NextHopIP:   packet.Header.Src,
+					Cost:        entry.Cost + 1,
+					Interface:   nil,
+					Type:        "R",
+					LastRefresh: time.Now(),
 				}
+				stack.Mutex.Unlock()
 				fmt.Println("received new route from ")
 				fmt.Println(packet.Header.Src)
 				fmt.Println("prefix = ")
@@ -457,17 +467,19 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				newEntries = append(newEntries, entry)
 			} else if exists && entry.Cost+1 < prevTuple.Cost {
 				// entry exists and updated cost is lower than old, update table with new entry
+				stack.Mutex.Lock()
 				stack.Forward_table[entryPrefix].Cost = entry.Cost
-
+				stack.Mutex.Unlock()
 				entry.Cost = entry.Cost + 1
 				newEntries = append(newEntries, entry)
 			} else if exists && entry.Cost+1 > prevTuple.Cost {
 				// updated cost greater than old cost
 				if packet.Header.Src == prevTuple.NextHopIP {
 					// topology has changed, route has higher cost now, update table
+					stack.Mutex.Lock()
 					stack.Forward_table[entryPrefix].Cost = entry.Cost
 					stack.Forward_table[entryPrefix].NextHopIP = packet.Header.Src
-
+					stack.Mutex.Unlock()
 					entry.Cost = entry.Cost + 1
 					newEntries = append(newEntries, entry)
 				}
@@ -477,9 +489,9 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 
 		// handles triggered updates
 		ripUpdate := &RIPPacket{
-			Command: 2,
+			Command:     2,
 			Num_entries: uint16(len(newEntries)),
-			Entries: newEntries,
+			Entries:     newEntries,
 		}
 
 		ripBytes, err := MarshalRIP(ripUpdate)
@@ -489,7 +501,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			return
 		}
 		for _, neighborIP := range stack.RipNeighbors {
-			if (neighborIP == packet.Header.Src) {
+			if neighborIP == packet.Header.Src {
 				// continue because split horizon
 				continue
 			}
@@ -532,10 +544,12 @@ func (stack *IPStack) Ln() string {
 
 func (stack *IPStack) Lr() string {
 	var res = "T     Prefix     Next hop    Cost"
+	stack.Mutex.RLock()
 	for prefix, ipCostIfaceTuple := range stack.Forward_table {
 		cost_string := strconv.FormatUint(uint64(ipCostIfaceTuple.Cost), 10)
 		res += "\n" + prefix.String() + "   " + ipCostIfaceTuple.NextHopIP.String() + "   " + cost_string
 	}
+	stack.Mutex.RUnlock()
 	return res
 }
 
@@ -557,20 +571,20 @@ func (stack *IPStack) Up(interfaceName string) {
 func ConvertToUint32(input netip.Addr) (uint32, error) {
 	if input.Is4() {
 		bytes, err := input.MarshalBinary()
-		if (err != nil) {
+		if err != nil {
 			return 0, err
 		}
 		return binary.BigEndian.Uint32(bytes), nil
 	}
 	return 0, fmt.Errorf("input is not IPv4")
-	
+
 }
 
 func uint32ToAddr(input uint32, addr netip.Addr) (netip.Addr, error) {
 	buf := make([]byte, 4) // 4 bytes for uint32.
 	binary.BigEndian.PutUint32(buf, input)
 	err := addr.UnmarshalBinary(buf)
-	if (err != nil) {
+	if err != nil {
 		return addr, err
 	}
 	return addr, nil
