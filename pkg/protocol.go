@@ -2,12 +2,10 @@ package protocol
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
-	"strconv"
 	"sync"
 	"time"
 
@@ -135,6 +133,10 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	// check if sending to itself
 	for ip := range stack.Interfaces {
 		if ip == dest {
+			if (stack.Interfaces[ip].Down) {
+				// interface is down, don't call callback
+				return nil
+			}
 			// sending to itself, so call callback
 			packet := &IPPacket{
 				Header: ipv4header.IPv4Header{
@@ -345,231 +347,8 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		return err
 	}
 	return nil
-
-}
-
-func TestPacketHandler(packet *IPPacket) {
-	fmt.Println("Received test packet: Src: " + packet.Header.Src.String() +
-		", Dst: " + packet.Header.Dst.String() +
-		", TTL: " + strconv.Itoa(packet.Header.TTL) +
-		", Data: " + string(packet.Payload))
-}
-
-func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
-	ripPacket, err := UnmarshalRIP(packet.Payload)
-	if err != nil {
-		fmt.Println("error unmarshaling packet payload in rip packet handler")
-		fmt.Println(err)
-		return
-	}
-
-	if ripPacket.Command == 1 {
-		// Have received a RIP request, need to send out an update
-		destIP := packet.Header.Src
-
-		ripUpdate := &RIPPacket{
-			Command: 2,
-		}
-
-		entries := make([]RIPEntry, 0)
-		stack.Mutex.RLock()
-		for prefix, tuple := range stack.Forward_table {
-
-			if tuple.Type == "S" {
-				// forward table entry is a default route only, we don't send to other routers
-				continue
-			}
-			if tuple.NextHopIP == destIP {
-				// implement split horizon, don't send route that it learned from that node
-				continue
-			}
-
-			// Convert IP address into uint32)
-			addressInt, _ := ConvertToUint32(prefix.Addr())
-			maskInt, _ := ConvertToUint32(prefix.Masked().Addr())
-
-			entry := RIPEntry{
-				Cost:    uint32(tuple.Cost),
-				Address: addressInt,
-				Mask:    maskInt,
-			}
-			entries = append(entries, entry)
-		}
-		stack.Mutex.RUnlock()
-		ripUpdate.Entries = entries
-		ripUpdate.Num_entries = uint16(len(entries))
-
-		ripBytes, err := MarshalRIP(ripUpdate)
-		if err != nil {
-			fmt.Println("error marshaling rip packet in rip packet handler")
-			fmt.Println(err)
-			return
-		}
-		stack.SendIP(nil, 32, destIP, 200, ripBytes)
-	} else if ripPacket.Command == 2 {
-		// list of entries that are new to send out for triggered update
-		newEntries := make([]RIPEntry, 0)
-
-		// received response, will need to update routing table
-		entryUpdates := ripPacket.Entries
-		stack.Mutex.Lock()
-		for i := 0; i < int(ripPacket.Num_entries); i++ {
-			entry := entryUpdates[i]
-			entryAddress := netip.IPv4Unspecified()
-			entryAddress, err := uint32ToAddr(entry.Address, entryAddress)
-			if err != nil {
-				fmt.Println("error converting uint32 to net ip addr")
-				fmt.Println(err)
-				return
-			}
-			entryMask := netip.IPv4Unspecified()
-			entryMask, err = uint32ToAddr(entry.Mask, entryMask)
-			if err != nil {
-				fmt.Println("error converting uint32 to mask")
-				fmt.Println(err)
-				return
-			}
-			entryPrefix, err := entryAddress.Prefix(entryMask.BitLen() - 8)
-			if err != nil {
-				fmt.Println("error converting uint32 to net ip prefix")
-				fmt.Println(err)
-				return
-			}
-			prevTuple, exists := stack.Forward_table[entryPrefix]
-			if !exists {
-				// entry from neighbor does not exist, add to table
-				stack.Forward_table[entryPrefix] = &ipCostInterfaceTuple{
-					NextHopIP:   packet.Header.Src,
-					Cost:        entry.Cost + 1,
-					Interface:   nil,
-					Type:        "R",
-					LastRefresh: time.Now(),
-				}
-
-				entry.Cost = entry.Cost + 1
-				newEntries = append(newEntries, entry)
-			} else if exists && entry.Cost+1 < prevTuple.Cost {
-				// entry exists and updated cost is lower than old, update table with new entry
-				stack.Forward_table[entryPrefix].Cost = entry.Cost
-				stack.Forward_table[entryPrefix].LastRefresh = time.Now()
-				entry.Cost = entry.Cost + 1
-				newEntries = append(newEntries, entry)
-			} else if exists && entry.Cost+1 > prevTuple.Cost {
-				// updated cost greater than old cost
-				if packet.Header.Src == prevTuple.NextHopIP {
-					// topology has changed, route has higher cost now, update table
-					stack.Forward_table[entryPrefix].Cost = entry.Cost
-					stack.Forward_table[entryPrefix].NextHopIP = packet.Header.Src
-					stack.Forward_table[entryPrefix].LastRefresh = time.Now()
-					entry.Cost = entry.Cost + 1
-					newEntries = append(newEntries, entry)
-				}
-			} else if (exists && entry.Cost + 1 == prevTuple.Cost && packet.Header.Src == prevTuple.NextHopIP) {
-				// repeat of same route, no update, but refresh time
-				prevTuple.LastRefresh = time.Now()
-			}
-		}
-		stack.Mutex.Unlock()
-
-		// handles triggered updates
-		ripUpdate := &RIPPacket{
-			Command:     2,
-			Num_entries: uint16(len(newEntries)),
-			Entries:     newEntries,
-		}
-
-		ripBytes, err := MarshalRIP(ripUpdate)
-		if err != nil {
-			fmt.Println("error marshaling rip packet in rip packet handler")
-			fmt.Println(err)
-			return
-		}
-		for _, neighborIP := range stack.RipNeighbors {
-			if neighborIP == packet.Header.Src {
-				// continue because split horizon
-				continue
-			}
-			stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
-		}
-	}
 }
 
 func (stack *IPStack) RegisterRecvHandler(protocolNum uint16, callbackFunc HandlerFunc) {
 	stack.Handler_table[protocolNum] = callbackFunc
-}
-
-// REPL commands
-func (stack *IPStack) Li() string {
-	var res = "Name Addr/Prefix  State"
-	for _, iface := range stack.Interfaces {
-		res += "\n" + iface.Name + "  " + iface.Prefix.String()
-		if iface.Down {
-			res += "  down"
-		} else {
-			res += "  up"
-		}
-	}
-	return res
-}
-
-func (stack *IPStack) Ln() string {
-	var res = "Iface VIP        UDPAddr"
-	for _, iface := range stack.Interfaces {
-		if iface.Down {
-			continue
-		} else {
-			for neighborIp, neighborAddrPort := range iface.Neighbors {
-				res += "\n" + iface.Name + "   " + neighborIp.String() + "   " + neighborAddrPort.String()
-			}
-		}
-	}
-	return res
-}
-
-func (stack *IPStack) Lr() string {
-	var res = "T     Prefix     Next hop    Cost"
-	stack.Mutex.RLock()
-	for prefix, ipCostIfaceTuple := range stack.Forward_table {
-		cost_string := strconv.FormatUint(uint64(ipCostIfaceTuple.Cost), 10)
-		res += "\n" + prefix.String() + "   " + ipCostIfaceTuple.NextHopIP.String() + "   " + cost_string
-	}
-	stack.Mutex.RUnlock()
-	return res
-}
-
-func (stack *IPStack) Down(interfaceName string) {
-	// Set down flag in interface to true
-	iface, exists := stack.NameToInterface[interfaceName]
-	if exists {
-		iface.Down = true
-	}
-}
-
-func (stack *IPStack) Up(interfaceName string) {
-	iface, exists := stack.NameToInterface[interfaceName]
-	if exists {
-		iface.Down = false
-	}
-}
-
-func ConvertToUint32(input netip.Addr) (uint32, error) {
-	if input.Is4() {
-		bytes, err := input.MarshalBinary()
-		if err != nil {
-			return 0, err
-		}
-		return binary.BigEndian.Uint32(bytes), nil
-	}
-	return 0, fmt.Errorf("input is not IPv4")
-
-}
-
-func uint32ToAddr(input uint32, addr netip.Addr) (netip.Addr, error) {
-	buf := make([]byte, 4) // 4 bytes for uint32.
-	binary.BigEndian.PutUint32(buf, input)
-	err := addr.UnmarshalBinary(buf)
-	if err != nil {
-		return addr, err
-	}
-	return addr, nil
 }

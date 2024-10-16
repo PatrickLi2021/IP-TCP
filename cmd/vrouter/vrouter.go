@@ -36,10 +36,6 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 						// default routes
 						continue
 					}
-					if tuple.NextHopIP == neighborIP {
-						// split horizon
-						continue
-					}
 
 					// Convert IP address into uint32
 					ipInteger, err := protocol.ConvertToUint32(tuple.NextHopIP)
@@ -56,6 +52,10 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 						Cost:    uint32(tuple.Cost),
 						Address: ipInteger,
 						Mask:    prefixInteger,
+					}
+					if tuple.NextHopIP == neighborIP {
+						// split horizon
+						entry.Cost = 16
 					}
 					entries = append(entries, entry)
 				}
@@ -182,7 +182,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 	for {
 		select {
 		case <-ticker.C:
-			deletedPrefixes := make([]netip.Prefix, 0)
+			deletedEntries := make([]protocol.RIPEntry, 0)
 			// Go through every route in the router's forwarding table
 			// stack.Mutex.Lock()
 			// TODO ^^^^
@@ -196,21 +196,8 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					// route is expired
 					stack.Forward_table[prefix].Cost = 16
 
-					// add prefix to list of prefixes to send in triggered update and to delete from table at end
-					deletedPrefixes = append(deletedPrefixes, prefix)
-				}
-			}
-
-			// send triggered update
-			for _, neighborIP := range stack.RipNeighbors {
-				entries := make([]protocol.RIPEntry, 0)
-
-				for _, prefix := range deletedPrefixes {
-					iFaceTuple := stack.Forward_table[prefix]
-					if (iFaceTuple.NextHopIP == neighborIP) {
-						continue
-					}
-					addrInt, err := protocol.ConvertToUint32(prefix.Addr())
+					// make new entry to to add list of deleted entries to send in triggered update
+					addressInt, err := protocol.ConvertToUint32(prefix.Addr())
 					if (err != nil) {
 						continue
 					}
@@ -218,30 +205,55 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					if (err != nil) {
 						continue
 					}
-					ripEntry:= protocol.RIPEntry{
-						Cost: iFaceTuple.Cost,
-						Address: addrInt,
+					ripEntry := protocol.RIPEntry{
+						Cost: 16,
+						Address: addressInt,
 						Mask: maskInt,
 					}
-					entries = append(entries, ripEntry)
-				}
-				if (len(entries) > 0) {
-					ripUpdate := &protocol.RIPPacket{
-						Command: 2,
-						Num_entries: uint16(len(entries)),
-						Entries: entries,
-					}
-					ripBytes, err := protocol.MarshalRIP(ripUpdate)
-					if (err != nil) {
-						continue
-					}
-					stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
+					deletedEntries = append(deletedEntries, ripEntry)
 				}
 			}
 
+			// send triggered update, don't account for split horizon, because all changed routes have cost 16
+			if (len(deletedEntries) > 0) {
+				continue
+			}
+			for _, neighborIP := range stack.RipNeighbors {
+				ripUpdate := &protocol.RIPPacket{
+					Command: 2,
+					Num_entries: uint16(len(deletedEntries)),
+					Entries: deletedEntries,
+				}
+				ripBytes, err := protocol.MarshalRIP(ripUpdate)
+				if (err != nil) {
+					continue
+				}
+				stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
+				
+			}
+
 			// delete expired routes from forwarding table
-			for _, prefix := range deletedPrefixes {
-				delete(stack.Forward_table, prefix)
+			for _, entry := range deletedEntries {
+				entryAddress := netip.IPv4Unspecified()
+				entryAddress, err := protocol.Uint32ToAddr(entry.Address, entryAddress)
+				if err != nil {
+					fmt.Println("error converting uint32 to net ip addr")
+					fmt.Println(err)
+					continue
+				}
+				entryMask := netip.IPv4Unspecified()
+				entryMask, err = protocol.Uint32ToAddr(entry.Mask, entryMask)
+				if err != nil {
+					fmt.Println("error converting uint32 to mask")
+					fmt.Println(err)
+					continue
+				}
+				entryPrefix, err := entryAddress.Prefix(entryMask.BitLen() - 8)
+				if (err != nil) {
+					continue
+				}
+				// TODO ^^^^ -8 is janky
+				delete(stack.Forward_table, entryPrefix)
 			}
 			// stack.Mutex.Unlock()
 		}
