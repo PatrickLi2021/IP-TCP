@@ -184,7 +184,8 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 		case <-ticker.C:
 			deletedPrefixes := make([]netip.Prefix, 0)
 			// Go through every route in the router's forwarding table
-			stack.Mutex.Lock()
+			// stack.Mutex.Lock()
+			// TODO ^^^^
 			for prefix, iFaceTuple := range stack.Forward_table {
 				if (iFaceTuple.Type == "L" || iFaceTuple.Type == "S") {
 					// skip over local routes and static, default routes
@@ -242,7 +243,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 			for _, prefix := range deletedPrefixes {
 				delete(stack.Forward_table, prefix)
 			}
-			stack.Mutex.Unlock()
+			// stack.Mutex.Unlock()
 		}
 
 	}

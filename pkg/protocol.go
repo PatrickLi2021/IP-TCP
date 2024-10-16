@@ -162,17 +162,13 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
 	if destAddrPort == nil {
 		// no match found, drop packet
-		fmt.Println("? forward tab = ")
-		for pref, tup := range stack.Forward_table {
-			fmt.Println(pref)
-			fmt.Println(tup.NextHopIP)
-		}
+		fmt.Println("A")
 		return nil
 	}
 	iface, exists := stack.Interfaces[*srcIP]
 	if exists && iface.Down {
-		fmt.Println("A")
 		// drop packet, if src is down
+		fmt.Println("down")
 		return nil
 	}
 	if protocolNum == 0 {
@@ -242,11 +238,8 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 	// searching for longest prefix match
 	var longestMatch netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
-	// fmt.Println("in find prefix, forward table = ")
 	stack.Mutex.RLock()
 	for pref, tuple := range stack.Forward_table {
-		// fmt.Println(pref)
-		// fmt.Println(tuple.NextHopIP)
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
@@ -255,7 +248,6 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 		}
 	}
 	stack.Mutex.RUnlock()
-	fmt.Println()
 
 	// no match found, drop packet
 	if bestTuple == nil {
@@ -349,7 +341,6 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
-		fmt.Println("in rec, forward")
 		err := stack.SendIP(&hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 		return err
 	}
@@ -454,10 +445,6 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 					Type:        "R",
 					LastRefresh: time.Now(),
 				}
-				fmt.Println("received new route from ")
-				fmt.Println(packet.Header.Src)
-				fmt.Println("prefix = ")
-				fmt.Println(entryPrefix)
 
 				entry.Cost = entry.Cost + 1
 				newEntries = append(newEntries, entry)

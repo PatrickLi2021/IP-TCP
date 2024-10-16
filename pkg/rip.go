@@ -3,9 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
-	"ip-ip-pa/lnxconfig"
 	"net/netip"
-	"sync"
 	"time"
 )
 
@@ -30,44 +28,6 @@ type RouteEntry struct {
 	Address          netip.Addr // source destination of route
 	InitialTimestamp time.Time  // time when this route was inserted (to be used for updating purposes)
 }
-
-type RipInstance struct {
-	NeighborRouters       []netip.Addr
-	RipPeriodicUpdateRate time.Duration
-	RipTimeoutThreshold   time.Duration
-	mutex                 sync.Mutex
-}
-
-func (ripInstance *RipInstance) Initialize(configInfo lnxconfig.IPConfig) {
-	ripInstance.NeighborRouters = configInfo.RipNeighbors
-	ripInstance.RipPeriodicUpdateRate = configInfo.RipPeriodicUpdateRate
-	ripInstance.RipTimeoutThreshold = configInfo.RipTimeoutThreshold
-}
-
-// func (ripInstance *RipInstance) sendRipRequest(stack *protocol.IPStack) {
-// 	for destAddrPort := range ripInstance.neighborRouters {
-// 		// Create RIP request
-// 		ripPacket := RIPPacket{
-// 			Command:     1,
-// 			Num_entries: 0,
-// 			Entries:     []RIPEntry{},
-// 		}
-// 		ripBytes, err := MarshalRIP(&ripPacket)
-// 		if err != nil {
-// 			fmt.Println("Error marshaling RIP packet message")
-// 			return
-// 		}
-
-// 		// Convert neighbor destAddrPort (netip.AddrPort) to net.UDPAddr
-// 		udpAddr := &net.UDPAddr{
-// 			IP:   net.IP(destAddrPort.Addr().AsSlice()),
-// 			Port: int(destAddrPort.Port()),
-// 		}
-
-// 		// Send RIP request bytes
-// 		iface.Conn.WriteToUDP(ripBytes, udpAddr)
-// 	}
-// }
 
 func MarshalRIP(ripPacket *RIPPacket) ([]byte, error) {
 	buf := new(bytes.Buffer)
