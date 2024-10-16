@@ -110,13 +110,11 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 	}
 
-	// Add rip neighbors only if routing type IS RIP
-	if stack.RoutingType == 2 {
-		stack.RipNeighbors = configInfo.RipNeighbors
-	}
+	// register test packet handler
+	stack.RegisterRecvHandler(0, TestPacketHandler)
 
-	// Add default route entry only if routing type is NOT RIP (aka NOT 2)
 	if stack.RoutingType != 2 {
+		// Add default route entry only if routing type is NOT RIP (aka NOT 2)
 		for prefix, address := range configInfo.StaticRoutes {
 			stack.Forward_table[prefix] = &ipCostInterfaceTuple{
 				NextHopIP:   address,
@@ -125,6 +123,27 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 				Type:        "S",
 			}
 		}
+	} else {
+		// register rip handler
+		// Add rip neighbors only if routing type IS RIP
+		stack.RipNeighbors = configInfo.RipNeighbors
+		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
+
+		// send rip request to all rip neighbors
+		for _, neighborIp := range stack.RipNeighbors {
+			requestPacket := &RIPPacket{
+				Command:     1,
+				Num_entries: 0,
+				Entries:     []RIPEntry{},
+			}
+
+			requestBytes, err := MarshalRIP(requestPacket)
+			if err != nil {
+				fmt.Println(err)
+				return nil
+			}
+			stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
+		}		
 	}
 	return nil
 }
@@ -147,7 +166,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 					ID:       0,
 					Flags:    0,
 					FragOff:  0,
-					TTL:      TTL,
+					TTL:      TTL-1,
 					Protocol: int(protocolNum),
 					Checksum: 0, // Should be 0 until checksum is computed
 					Src:      dest,
@@ -164,18 +183,12 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
 	if destAddrPort == nil {
 		// no match found, drop packet
-		fmt.Println("A")
 		return nil
 	}
 	iface, exists := stack.Interfaces[*srcIP]
 	if exists && iface.Down {
 		// drop packet, if src is down
-		fmt.Println("down")
 		return nil
-	}
-	if protocolNum == 0 {
-		fmt.Println("in send ip, dest = ")
-		fmt.Println(destAddrPort)
 	}
 	if originalSrc == nil {
 		originalSrc = srcIP
@@ -302,9 +315,6 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		return nil 
 	}
 
-	if hdr.Protocol == 0 {
-		fmt.Println("in receieve")
-	}
 	hdrSize := hdr.Len
 
 	// validate checksum
@@ -331,6 +341,8 @@ func (stack *IPStack) Receive(iface *Interface) error {
 			break
 		}
 	}
+	// decrement TTL in hdr
+	hdr.TTL = hdr.TTL - 1
 	if correctDest {
 		// packet has reached destination
 
@@ -343,7 +355,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
-		err := stack.SendIP(&hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
+		err := stack.SendIP(&hdr.Src, hdr.TTL, hdr.Dst, uint16(hdr.Protocol), message)
 		return err
 	}
 	return nil

@@ -1,0 +1,26 @@
+{
+ "h1": {
+  "binary_path": "./reference/arm64/vhost",
+  "extra_args": "--log-level debug"
+ },
+ "h2": {
+  "binary_path": "./vhost"
+ },
+ "r1": {
+  "binary_path": "./vrouter"
+ },
+ "r2": {
+  "binary_path": "./reference/arm64/vrouter",
+  "extra_args": "--log-level debug"
+ },
+ "r3": {
+  "binary_path": "./reference/arm64/vrouter",
+  "extra_args": "--log-level debug"
+ },
+ "r4": {
+  "binary_path": "./vrouter"
+ },
+ "r5": {
+  "binary_path": "./vrouter"
+ }
+}

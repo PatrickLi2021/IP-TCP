@@ -34,7 +34,6 @@ func main() {
 	var stack *protocol.IPStack = &protocol.IPStack{}
 	stack.Initialize(*lnxConfig)
 
-	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
 	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)
 	}

@@ -98,30 +98,6 @@ func main() {
 	var stack *protocol.IPStack = &protocol.IPStack{}
 	stack.Initialize(*lnxConfig)
 
-	// register test packet
-	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
-
-	// Router is now online, so we need to send RIP request to all of its neighbors
-	if stack.RoutingType == 2 {
-		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
-
-		// send rip request to all rip neighbors
-		for _, neighborIp := range stack.RipNeighbors {
-			requestPacket := &protocol.RIPPacket{
-				Command:     1,
-				Num_entries: 0,
-				Entries:     []protocol.RIPEntry{},
-			}
-
-			requestBytes, err := protocol.MarshalRIP(requestPacket)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
-		}
-	}
-
 	// thread to send router udpates to rip neighbors every 5 secs
 	go routerPeriodicSend(stack)
 	// thread to check for expired routes

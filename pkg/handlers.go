@@ -65,6 +65,8 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			return
 		}
 		stack.SendIP(nil, 32, destIP, 200, ripBytes)
+		fmt.Println("sending forward table for rip to = ")
+		fmt.Println(destIP)
 	} else if ripPacket.Command == 2 {
 		// list of entries that are new to send out for triggered update
 		updatedEntries := make([]RIPEntry, 0)
