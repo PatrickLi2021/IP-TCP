@@ -26,50 +26,57 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 	for {
 		select {
 		case <-ticker.C:
+			// split horizon
+			for _, neighborIP := range stack.RipNeighbors {				
+				entries := make([]protocol.RIPEntry, 0)
+				// loop to accumulate entries to send as periodic update 
+				for mask, tuple := range stack.Forward_table {
+					if tuple.Type == "S" {
+						// default routes
+						continue
+					}
+					if (tuple.NextHopIP == neighborIP) {
+						// split horizon
+						continue
+					}
+	
+					// Convert IP address into uint32
+					ipInteger, err := protocol.ConvertToUint32(tuple.NextHopIP)
+					if (err != nil) {
+						continue
+					}
+	
+					// Convert prefix/mask into uint32
+					prefixInteger, err := protocol.ConvertToUint32(mask.Addr())
+					if (err != nil) {
+						continue
+					}
+					entry := protocol.RIPEntry{
+						Cost:    uint32(tuple.Cost),
+						Address: ipInteger,
+						Mask:    prefixInteger,
+					}
+					entries = append(entries, entry)
+				}
+				
+				if (len(entries) > 0) {
+					ripUpdate := &protocol.RIPPacket{
+						Command: 2,
+					}
+					ripUpdate.Entries = entries
+					ripUpdate.Num_entries = uint16(len(entries))
+		
+					ripBytes, err := protocol.MarshalRIP(ripUpdate)
+					if err != nil {
+						fmt.Println("error marshaling rip packet in rip packet handler")
+						fmt.Println(err)
+						return
+					}
 
-			ripUpdate := &protocol.RIPPacket{
-				Command: 2,
+					stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
+				}
 			}
 
-			entries := make([]protocol.RIPEntry, 0)
-			for mask, tuple := range stack.Forward_table {
-				if tuple.Type == "S" {
-					// default routes
-					continue
-				}
-
-				// Convert IP address into uint32
-				ipInteger, err := protocol.ConvertToUint32(tuple.NextHopIP)
-				if (err != nil) {
-					continue
-				}
-
-				// Convert prefix/mask into uint32
-				prefixInteger, err := protocol.ConvertToUint32(mask.Addr())
-				if (err != nil) {
-					continue
-				}
-				entry := protocol.RIPEntry{
-					Cost:    uint32(tuple.Cost),
-					Address: ipInteger,
-					Mask:    prefixInteger,
-				}
-				entries = append(entries, entry)
-			}
-
-			ripUpdate.Entries = entries
-			ripUpdate.Num_entries = uint16(len(entries))
-
-			ripBytes, err := protocol.MarshalRIP(ripUpdate)
-			if err != nil {
-				fmt.Println("error marshaling rip packet in rip packet handler")
-				fmt.Println(err)
-				return
-			}
-
-			for _, neighborIP := range stack.RipNeighbors {
-				stack.SendIP(nil, 31, neighborIP, 200, ripBytes)
-			}
 		}
 	}
 }
@@ -110,7 +117,7 @@ func main() {
 				fmt.Println(err)
 				return
 			}
-			stack.SendIP(nil, 31, neighborIp, 200, requestBytes)
+			stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
 		}
 	}
 
@@ -155,7 +162,7 @@ func main() {
 				continue
 			}
 
-			stack.SendIP(nil, 31, destIP, 0, []byte(message))
+			stack.SendIP(nil, 32, destIP, 0, []byte(message))
 
 		} else {
 			fmt.Println("Invalid command.")

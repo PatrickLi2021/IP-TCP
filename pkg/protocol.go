@@ -385,6 +385,10 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				// forward table entry is a default route only, we don't send to other routers
 				continue
 			}
+			if (tuple.NextHopIP == destIP) {
+				// implement split horizon, don't send route that it learned from that node
+				continue
+			}
 
 			// Convert IP address into uint32)
 			addressInt, _ := ConvertToUint32(prefix.Addr())
@@ -406,7 +410,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			fmt.Println(err)
 			return
 		}
-		stack.SendIP(nil, 31, destIP, 200, ripBytes)
+		stack.SendIP(nil, 32, destIP, 200, ripBytes)
 	} else if ripPacket.Command == 2 {
 		// list of entries that are new to send out for triggered update
 		newEntries := make([]RIPEntry, 0)
