@@ -18,7 +18,7 @@ func listen(stack *protocol.IPStack, iface *protocol.Interface) {
 	}
 }
 
-func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstance) {
+func routerPeriodicSend(stack *protocol.IPStack) {
 	// function to send router updates to rip neighbors every 5 seconds
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -33,16 +33,22 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 
 			entries := make([]protocol.RIPEntry, 0)
 			for mask, tuple := range stack.Forward_table {
-				if tuple.Cost == 0 && tuple.Interface == nil {
+				if tuple.Type == "S" {
 					// default routes
 					continue
 				}
 
 				// Convert IP address into uint32
-				ipInteger, _, _ := protocol.ConvertToUint32(tuple.NextHopIP)
+				ipInteger, err := protocol.ConvertToUint32(tuple.NextHopIP)
+				if (err != nil) {
+					continue
+				}
 
 				// Convert prefix/mask into uint32
-				prefixInteger, _, _ := protocol.ConvertToUint32(mask)
+				prefixInteger, err := protocol.ConvertToUint32(mask.Addr())
+				if (err != nil) {
+					continue
+				}
 				entry := protocol.RIPEntry{
 					Cost:    uint32(tuple.Cost),
 					Address: ipInteger,
@@ -61,7 +67,7 @@ func routerPeriodicSend(stack *protocol.IPStack, ripInstance *protocol.RipInstan
 				return
 			}
 
-			for _, neighborIP := range ripInstance.NeighborRouters {
+			for _, neighborIP := range stack.RipNeighbors {
 				stack.SendIP(nil, 31, neighborIP, 200, ripBytes)
 			}
 		}
@@ -82,20 +88,17 @@ func main() {
 	}
 	// Create a new router node
 	var stack *protocol.IPStack = &protocol.IPStack{}
-	var ripInstance *protocol.RipInstance = &protocol.RipInstance{}
 	stack.Initialize(*lnxConfig)
 
 	// register test packet
 	stack.RegisterRecvHandler(0, protocol.TestPacketHandler)
 
-	// Router is now online, so we need to declare/initialize ripInstance specific struct
-	// send RIP request to all of its neighbors
+	// Router is now online, so we need to send RIP request to all of its neighbors
 	if stack.RoutingType == 2 {
-		ripInstance.Initialize(*lnxConfig)
 		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
 
 		// send rip request to all rip neighbors
-		for _, neighborIp := range ripInstance.NeighborRouters {
+		for _, neighborIp := range stack.RipNeighbors {
 			requestPacket := &protocol.RIPPacket{
 				Command:     1,
 				Num_entries: 0,
@@ -112,7 +115,7 @@ func main() {
 	}
 
 	// thread to send router udpates to rip neighbors every 5 secs
-	go routerPeriodicSend(stack, ripInstance)
+	go routerPeriodicSend(stack)
 
 	// Start listening on all of its interfaces
 	for _, iface := range stack.Interfaces {

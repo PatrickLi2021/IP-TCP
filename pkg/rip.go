@@ -17,7 +17,6 @@ type RIPPacket struct {
 	Command     uint16
 	Num_entries uint16
 	Entries     []RIPEntry
-	SourceIP    netip.Addr
 }
 
 type RIPEntry struct {
@@ -101,9 +100,9 @@ func UnmarshalRIP(payload []byte) (*RIPPacket, error) {
 	offset := 4
 	for i := 0; i < int(numEntries); i++ {
 		entry := RIPEntry{
-			Cost:    binary.LittleEndian.Uint32(payload[offset : offset+4]),
-			Address: binary.LittleEndian.Uint32(payload[offset+4 : offset+8]),
-			Mask:    binary.LittleEndian.Uint32(payload[offset+8 : offset+12]),
+			Cost:    binary.BigEndian.Uint32(payload[offset : offset+4]),
+			Address: binary.BigEndian.Uint32(payload[offset+4 : offset+8]),
+			Mask:    binary.BigEndian.Uint32(payload[offset+8 : offset+12]),
 		}
 		packet.Entries[i] = entry
 		offset += 12

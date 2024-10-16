@@ -48,6 +48,7 @@ type IPStack struct {
 	Interfaces      map[netip.Addr]*Interface              // maps interface names to interfaces
 	Mutex           sync.RWMutex                           // for concurrency
 	NameToInterface map[string]*Interface                  // maps name to interface for REPL commands
+	RipNeighbors 		[]netip.Addr
 }
 
 func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
@@ -109,6 +110,11 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 	}
 
+	// Add rip neighbors only if routing type IS RIP
+	if (stack.RoutingType == 2) {
+		stack.RipNeighbors = configInfo.RipNeighbors
+	}
+
 	// Add default route entry only if routing type is NOT RIP (aka NOT 2)
 	if stack.RoutingType != 2 {
 		for prefix, address := range configInfo.StaticRoutes {
@@ -154,14 +160,23 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
 	if destAddrPort == nil {
 		// no match found, drop packet
+		fmt.Println("? forward tab = ")
+		for pref, tup := range stack.Forward_table {
+			fmt.Println(pref)
+			fmt.Println(tup.NextHopIP)
+		}
 		return nil
 	}
 	iface, exists := stack.Interfaces[*srcIP]
 	if exists && iface.Down {
+		fmt.Println("A")
 		// drop packet, if src is down
 		return nil
 	}
-
+	if (protocolNum==0) {
+		fmt.Println("in send ip, dest = ")
+		fmt.Println(destAddrPort)
+	}
 	if originalSrc == nil {
 		originalSrc = srcIP
 	}
@@ -225,7 +240,10 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 	// searching for longest prefix match
 	var longestMatch netip.Prefix
 	var bestTuple *ipCostInterfaceTuple = nil
+	// fmt.Println("in find prefix, forward table = ")
 	for pref, tuple := range stack.Forward_table {
+		// fmt.Println(pref)
+		// fmt.Println(tuple.NextHopIP)
 		if pref.Contains(addr) {
 			if pref.Bits() > longestMatch.Bits() {
 				longestMatch = pref
@@ -233,10 +251,10 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 			}
 		}
 	}
+	fmt.Println()
 
 	// no match found, drop packet
 	if bestTuple == nil {
-		// should never reach this
 		return nil, nil
 	}
 
@@ -286,6 +304,9 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		return nil // TODO? what to do? node should not crash or exit, instead just drop message and return to processing
 	}
 
+	if (hdr.Protocol == 0) {
+		fmt.Println("in receieve")
+	}
 	hdrSize := hdr.Len
 
 	// validate checksum
@@ -306,7 +327,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 
 	// check packet's dest ip
 	correctDest := hdr.Dst == iface.IP
-	for interIP, _ := range stack.Interfaces {
+	for interIP := range stack.Interfaces {
 		if interIP == hdr.Dst {
 			correctDest = true
 			break
@@ -324,6 +345,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		stack.Handler_table[uint16(hdr.Protocol)](packet)
 	} else {
 		// packet has NOT reached dest yet
+		fmt.Println("in rec, forward")
 		err := stack.SendIP(&hdr.Src, hdr.TTL-1, hdr.Dst, uint16(hdr.Protocol), message)
 		return err
 	}
@@ -357,19 +379,19 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 		entries := make([]RIPEntry, 0)
 		for prefix, tuple := range stack.Forward_table {
 
-			if tuple.Interface == nil && tuple.Cost == 0 {
+			if tuple.Type == "S" {
 				// forward table entry is a default route only, we don't send to other routers
 				continue
 			}
 
 			// Convert IP address into uint32)
-			address, _, _ := ConvertToUint32(prefix.Addr())
-			mask, _, _ := ConvertToUint32(prefix.Masked())
+			addressInt, _ := ConvertToUint32(prefix.Addr())
+			maskInt, _ := ConvertToUint32(prefix.Masked().Addr())
 
 			entry := RIPEntry{
 				Cost:    uint32(tuple.Cost),
-				Address: address,
-				Mask:    mask,
+				Address: addressInt,
+				Mask:    maskInt,
 			}
 			entries = append(entries, entry)
 		}
@@ -384,17 +406,22 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 		}
 		stack.SendIP(nil, 31, destIP, 200, ripBytes)
 	} else if ripPacket.Command == 2 {
+		// list of entries that are new to send out for triggered update
+		newEntries := make([]RIPEntry, 0)
+
 		// received response, will need to update routing table
 		entryUpdates := ripPacket.Entries
 		for i := 0; i < int(ripPacket.Num_entries); i++ {
 			entry := entryUpdates[i]
-			entryAddress, err := uint32ToAddr(entry.Address)
+			entryAddress := netip.IPv4Unspecified()
+			entryAddress, err := uint32ToAddr(entry.Address, entryAddress)
 			if err != nil {
 				fmt.Println("error converting uint32 to net ip addr")
 				fmt.Println(err)
 				return
 			}
-			entryMask, err := uint32ToAddr(entry.Mask)
+			entryMask := netip.IPv4Unspecified()
+			entryMask, err = uint32ToAddr(entry.Mask, entryMask)
 			if err != nil {
 				fmt.Println("error converting uint32 to mask")
 				fmt.Println(err)
@@ -413,19 +440,54 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 					NextHopIP: packet.Header.Src,
 					Cost:      entry.Cost + 1,
 					Interface: nil,
+					Type: "R",
 				}
+				fmt.Println("received new route from ")
+				fmt.Println(packet.Header.Src)
+				fmt.Println("prefix = ")
+				fmt.Println(entryPrefix)
+
+				entry.Cost = entry.Cost + 1
+				newEntries = append(newEntries, entry)
 			} else if exists && entry.Cost+1 < prevTuple.Cost {
 				// entry exists and updated cost is lower than old, update table with new entry
 				stack.Forward_table[entryPrefix].Cost = entry.Cost
+
+				entry.Cost = entry.Cost + 1
+				newEntries = append(newEntries, entry)
 			} else if exists && entry.Cost+1 > prevTuple.Cost {
 				// updated cost greater than old cost
 				if packet.Header.Src == prevTuple.NextHopIP {
 					// topology has changed, route has higher cost now, update table
 					stack.Forward_table[entryPrefix].Cost = entry.Cost
 					stack.Forward_table[entryPrefix].NextHopIP = packet.Header.Src
+
+					entry.Cost = entry.Cost + 1
+					newEntries = append(newEntries, entry)
 				}
 			}
 			// TODO: else new cost == old cost and dests are same, so refresh route
+		}
+
+		// handles triggered updates
+		ripUpdate := &RIPPacket{
+			Command: 2,
+			Num_entries: uint16(len(newEntries)),
+			Entries: newEntries,
+		}
+
+		ripBytes, err := MarshalRIP(ripUpdate)
+		if err != nil {
+			fmt.Println("error marshaling rip packet in rip packet handler")
+			fmt.Println(err)
+			return
+		}
+		for _, neighborIP := range stack.RipNeighbors {
+			if (neighborIP == packet.Header.Src) {
+				// continue because split horizon
+				continue
+			}
+			stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
 		}
 	}
 }
@@ -486,39 +548,24 @@ func (stack *IPStack) Up(interfaceName string) {
 	}
 }
 
-func ConvertToUint32(input interface{}) (uint32, uint32, error) {
-	switch v := input.(type) {
-	case netip.Prefix:
-		if v.Addr().Is4() {
-			ip := v.Addr().As4()
-			return binary.BigEndian.Uint32(ip[:]), uint32(v.Bits()), nil
+func ConvertToUint32(input netip.Addr) (uint32, error) {
+	if input.Is4() {
+		bytes, err := input.MarshalBinary()
+		if (err != nil) {
+			return 0, err
 		}
-		return 0, 0, fmt.Errorf("prefix is not IPv4")
-	case netip.Addr:
-		if v.Is4() {
-			ip := v.As4()
-			return binary.BigEndian.Uint32(ip[:]), 0, nil
-		}
-		return 0, 0, fmt.Errorf("address is not IPv4")
-	default:
-		return 0, 0, fmt.Errorf("unsupported type: %T", v)
+		return binary.BigEndian.Uint32(bytes), nil
 	}
+	return 0, fmt.Errorf("input is not IPv4")
+	
 }
 
-func uint32ToAddr(ipUint32 uint32) (netip.Addr, error) {
-	// Convert uint32 to byte slice
-	ip := make([]byte, 4)
-	binary.BigEndian.PutUint32(ip, ipUint32)
-
-	// Create a netip.Addr from the byte slice using the 4-byte IPv4 constructor
-	addr := netip.AddrFrom4([4]byte{ip[3], ip[2], ip[1], ip[0]})
+func uint32ToAddr(input uint32, addr netip.Addr) (netip.Addr, error) {
+	buf := make([]byte, 4) // 4 bytes for uint32.
+	binary.BigEndian.PutUint32(buf, input)
+	err := addr.UnmarshalBinary(buf)
+	if (err != nil) {
+		return addr, err
+	}
 	return addr, nil
-}
-
-func uint32ToPrefix(ipUint32 uint32, prefixLen int) (netip.Prefix, error) {
-	addr, err := uint32ToAddr(ipUint32)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-	return addr.Prefix(prefixLen)
 }
