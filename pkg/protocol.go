@@ -59,6 +59,16 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	stack.NameToInterface = make(map[string]*Interface)
 	stack.Mutex = sync.RWMutex{}
 
+	if (stack.RoutingType == 2) {
+		// register rip handler
+		// Add rip neighbors only if routing type IS RIP
+		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)	
+		stack.RipNeighbors = configInfo.RipNeighbors
+	}
+
+	// register test packet handler
+	stack.RegisterRecvHandler(0, TestPacketHandler)
+
 	// create interfaces to populate map of interfaces for IPStack struct
 	for _, lnxInterface := range configInfo.Interfaces {
 		// one new interface
@@ -109,9 +119,6 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		}
 	}
 
-	// register test packet handler
-	stack.RegisterRecvHandler(0, TestPacketHandler)
-
 	if stack.RoutingType != 2 {
 		// Add default route entry only if routing type is NOT RIP (aka NOT 2)
 		for prefix, address := range configInfo.StaticRoutes {
@@ -122,27 +129,6 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 				Type:        "S",
 			}
 		}
-	} else {
-		// register rip handler
-		// Add rip neighbors only if routing type IS RIP
-		stack.RipNeighbors = configInfo.RipNeighbors
-		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
-
-		// send rip request to all rip neighbors
-		for _, neighborIp := range stack.RipNeighbors {
-			requestPacket := &RIPPacket{
-				Command:     1,
-				Num_entries: 0,
-				Entries:     []RIPEntry{},
-			}
-
-			requestBytes, err := MarshalRIP(requestPacket)
-			if err != nil {
-				fmt.Println(err)
-				return nil
-			}
-			stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
-		}		
 	}
 	return nil
 }

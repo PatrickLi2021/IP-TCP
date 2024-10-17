@@ -38,7 +38,8 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 					}
 
 					// Convert IP address into uint32
-					ipInteger, err := protocol.ConvertAddrToUint32(tuple.NextHopIP)
+					// TODO x
+					ipInteger, err := protocol.ConvertAddrToUint32(prefix.Addr())
 					if err != nil {
 						continue
 					}
@@ -97,15 +98,31 @@ func main() {
 	var stack *protocol.IPStack = &protocol.IPStack{}
 	stack.Initialize(*lnxConfig)
 
-	// thread to send router udpates to rip neighbors every 5 secs
-	go routerPeriodicSend(stack)
-	// thread to check for expired routes
-	go cleanExpiredRoutes(stack)
-
 	// Start listening on all of its interfaces
 	for _, iface := range stack.Interfaces {
 		go listen(stack, iface)
 	}
+
+	// send rip request to all rip neighbors
+	for _, neighborIp := range stack.RipNeighbors {
+		requestPacket := &protocol.RIPPacket{
+			Command:     1,
+			Num_entries: 0,
+			Entries:     []protocol.RIPEntry{},
+		}
+
+		requestBytes, err := protocol.MarshalRIP(requestPacket)
+		if err != nil {
+			continue
+		}
+		time.Sleep(1 * time.Second)
+		stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
+	}	
+
+	// thread to send router udpates to rip neighbors every 5 secs
+	go routerPeriodicSend(stack)
+	// thread to check for expired routes
+	go cleanExpiredRoutesTicker(stack)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Enter command")
@@ -126,7 +143,7 @@ func main() {
 			interfaceName := userInput[3:]
 			stack.Up(interfaceName)
 
-		} else if userInput[0:4] == "send" {
+		} else if len(userInput) >= 6 && userInput[0:4] == "send" {
 			var spaceIdx = strings.Index(userInput[5:], " ") + 5
 
 			destIP, err := netip.ParseAddr(userInput[5:spaceIdx])
@@ -149,24 +166,24 @@ func main() {
 	}
 }
 
-func cleanExpiredRoutes(stack *protocol.IPStack) {
-
-	// ticker := time.NewTicker(10 * time.Second)
-	// defer ticker.Stop()
-
+func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
+	ticker := time.NewTicker(12 * time.Second)
+	defer ticker.Stop()
 	for {
-		// select {
-		// case <-ticker.C:
+		select {
+		case <-ticker.C:
 			deletedEntries := make([]protocol.RIPEntry, 0)
 			// Go through every route in the router's forwarding table
+
 			stack.Mutex.RLock()
 			for prefix, iFaceTuple := range stack.Forward_table {
-				if (iFaceTuple.Type == "L" || iFaceTuple.Type == "S") {
+				if (iFaceTuple.Type != "R") {
 					// skip over local routes and static, default routes
 					continue
 				}
 
-				if ( (time.Since(iFaceTuple.LastRefresh)) * time.Second > (12 * time.Second) ) {
+				if ( (time.Now().Sub(iFaceTuple.LastRefresh)) > (12 * time.Second) ) {
+					fmt.Println((time.Now().Sub(iFaceTuple.LastRefresh)))
 					// make new entry to to add list of deleted entries to send in triggered update
 					addressInt, err := protocol.ConvertAddrToUint32(prefix.Addr())
 					if (err != nil) {
@@ -182,30 +199,21 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 						Mask: maskInt,
 					}
 					deletedEntries = append(deletedEntries, ripEntry)
+					// fmt.Println("len of deleted entries = ")
+					// fmt.Println(len(deletedEntries))
 				}
 			}
 			stack.Mutex.RUnlock()
 
 			// send triggered update, don't account for split horizon, because all changed routes have cost 16
-			if (len(deletedEntries) > 0) {
+			if (len(deletedEntries) == 0) {
 				continue
-			}
-			for _, neighborIP := range stack.RipNeighbors {
-				ripUpdate := &protocol.RIPPacket{
-					Command: 2,
-					Num_entries: uint16(len(deletedEntries)),
-					Entries: deletedEntries,
-				}
-				ripBytes, err := protocol.MarshalRIP(ripUpdate)
-				if (err != nil) {
-					continue
-				}
-				stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
-				
 			}
 
 			// delete expired routes from forwarding table
-			// stack.Mutex.Lock()
+			// fmt.Println("HERE")
+			stack.Mutex.Lock()
+			// fmt.Println("deleting expired stuff now")
 			for _, entry := range deletedEntries {
 				entryAddress, err := protocol.Uint32ToAddr(entry.Address)
 				if err != nil {
@@ -219,14 +227,29 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					fmt.Println(err)
 					continue
 				}
-				stack.Mutex.Lock()
 				delete(stack.Forward_table, entryPrefix)
-				stack.Mutex.Unlock()
 			}
-			// stack.Mutex.Unlock()
+			// fmt.Println("after expire")
+			// fmt.Println(len(stack.Forward_table))
+			stack.Mutex.Unlock()
+
+			for _, neighborIP := range stack.RipNeighbors {
+				ripUpdate := &protocol.RIPPacket{
+					Command: 2,
+					Num_entries: uint16(len(deletedEntries)),
+					Entries: deletedEntries,
+				}
+				ripBytes, err := protocol.MarshalRIP(ripUpdate)
+				if (err != nil) {
+					continue
+				}
+				stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
+				// fmt.Println("loop 1")
+			}
+			// fmt.Println("done neighbor send")
 		}
 
-	// }
+	}
 
 }
 

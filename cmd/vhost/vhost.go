@@ -61,7 +61,7 @@ func main() {
 			interfaceName := userInput[3:]
 			stack.Up(interfaceName)
 
-		} else if userInput[0:4] == "send" {
+		} else if len(userInput) >= 6 && userInput[0:4] == "send" {
 			var spaceIdx = strings.Index(userInput[5:], " ") + 5
 
 			destIP, err := netip.ParseAddr(userInput[5:spaceIdx])
