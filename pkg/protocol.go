@@ -141,7 +141,6 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 				fmt.Println(err)
 				return nil
 			}
-			fmt.Println(requestBytes)
 			stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
 		}		
 	}

@@ -151,15 +151,15 @@ func main() {
 
 func cleanExpiredRoutes(stack *protocol.IPStack) {
 
-	ticker := time.NewTicker(12 * time.Second)
-	defer ticker.Stop()
+	// ticker := time.NewTicker(10 * time.Second)
+	// defer ticker.Stop()
 
 	for {
-		select {
-		case <-ticker.C:
+		// select {
+		// case <-ticker.C:
 			deletedEntries := make([]protocol.RIPEntry, 0)
 			// Go through every route in the router's forwarding table
-			stack.Mutex.Lock()
+			stack.Mutex.RLock()
 			for prefix, iFaceTuple := range stack.Forward_table {
 				if (iFaceTuple.Type == "L" || iFaceTuple.Type == "S") {
 					// skip over local routes and static, default routes
@@ -167,9 +167,6 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 				}
 
 				if ( (time.Since(iFaceTuple.LastRefresh)) * time.Second > (12 * time.Second) ) {
-					// route is expired
-					stack.Forward_table[prefix].Cost = 16
-
 					// make new entry to to add list of deleted entries to send in triggered update
 					addressInt, err := protocol.ConvertAddrToUint32(prefix.Addr())
 					if (err != nil) {
@@ -187,7 +184,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					deletedEntries = append(deletedEntries, ripEntry)
 				}
 			}
-			stack.Mutex.Unlock()
+			stack.Mutex.RUnlock()
 
 			// send triggered update, don't account for split horizon, because all changed routes have cost 16
 			if (len(deletedEntries) > 0) {
@@ -208,7 +205,7 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 			}
 
 			// delete expired routes from forwarding table
-			stack.Mutex.Lock()
+			// stack.Mutex.Lock()
 			for _, entry := range deletedEntries {
 				entryAddress, err := protocol.Uint32ToAddr(entry.Address)
 				if err != nil {
@@ -222,12 +219,14 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					fmt.Println(err)
 					continue
 				}
+				stack.Mutex.Lock()
 				delete(stack.Forward_table, entryPrefix)
+				stack.Mutex.Unlock()
 			}
-			stack.Mutex.Unlock()
+			// stack.Mutex.Unlock()
 		}
 
-	}
+	// }
 
 }
 

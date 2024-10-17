@@ -96,6 +96,19 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			}
 
 			prevTuple, exists := stack.Forward_table[entryPrefix]
+			if (!exists && entry.Cost >= 16) {
+				fmt.Println("HERE")
+				continue
+			}
+
+			/*
+			else if (exists && entry.Cost >= 16) {
+				fmt.Println("HERE")
+				updatedEntries = append(updatedEntries, entry)
+				delete(stack.Forward_table, entryPrefix)
+				
+			} 
+			*/
 			if !exists {
 				// entry from neighbor does not exist, add to table
 				stack.Forward_table[entryPrefix] = &ipCostInterfaceTuple{
@@ -108,19 +121,24 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 
 				entry.Cost = entry.Cost + 1
 				updatedEntries = append(updatedEntries, entry)
+			} else if (exists && entry.Cost >= 16) {
+				fmt.Println("HERE2")
+				updatedEntries = append(updatedEntries, entry)
+				delete(stack.Forward_table, entryPrefix)
+				
 			} else if exists && entry.Cost+1 < prevTuple.Cost {
 				// entry exists and updated cost is lower than old, update table with new entry
-				stack.Forward_table[entryPrefix].Cost = entry.Cost
-				stack.Forward_table[entryPrefix].NextHopIP = packet.Header.Src
-				stack.Forward_table[entryPrefix].LastRefresh = time.Now()
+				prevTuple.Cost = entry.Cost
+				prevTuple.NextHopIP = packet.Header.Src
+				prevTuple.LastRefresh = time.Now()
 				entry.Cost = entry.Cost + 1
 				updatedEntries = append(updatedEntries, entry)
 			} else if exists && entry.Cost+1 > prevTuple.Cost {
 				// updated cost greater than old cost
 				if packet.Header.Src == prevTuple.NextHopIP {
 					// topology has changed, route has higher cost now, update table
-					stack.Forward_table[entryPrefix].Cost = entry.Cost
-					stack.Forward_table[entryPrefix].LastRefresh = time.Now()
+					prevTuple.Cost = entry.Cost
+					prevTuple.LastRefresh = time.Now()
 					entry.Cost = entry.Cost + 1
 					updatedEntries = append(updatedEntries, entry)
 				}
