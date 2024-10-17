@@ -216,7 +216,6 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	bytesToSend = append(bytesToSend, []byte(data)...)
 	// bytesToSend = bytes.TrimRight(bytesToSend, "\x00")
 
-	// TODO
 	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)

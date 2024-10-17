@@ -38,7 +38,6 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 					}
 
 					// Convert IP address into uint32
-					// TODO x
 					ipInteger, err := protocol.ConvertAddrToUint32(prefix.Addr())
 					if err != nil {
 						continue
@@ -183,7 +182,6 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 				}
 
 				if ( (time.Now().Sub(iFaceTuple.LastRefresh)) > (12 * time.Second) ) {
-					fmt.Println((time.Now().Sub(iFaceTuple.LastRefresh)))
 					// make new entry to to add list of deleted entries to send in triggered update
 					addressInt, err := protocol.ConvertAddrToUint32(prefix.Addr())
 					if (err != nil) {
@@ -199,8 +197,6 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 						Mask: maskInt,
 					}
 					deletedEntries = append(deletedEntries, ripEntry)
-					// fmt.Println("len of deleted entries = ")
-					// fmt.Println(len(deletedEntries))
 				}
 			}
 			stack.Mutex.RUnlock()
@@ -211,9 +207,7 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 			}
 
 			// delete expired routes from forwarding table
-			// fmt.Println("HERE")
 			stack.Mutex.Lock()
-			// fmt.Println("deleting expired stuff now")
 			for _, entry := range deletedEntries {
 				entryAddress, err := protocol.Uint32ToAddr(entry.Address)
 				if err != nil {
@@ -229,8 +223,6 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 				}
 				delete(stack.Forward_table, entryPrefix)
 			}
-			// fmt.Println("after expire")
-			// fmt.Println(len(stack.Forward_table))
 			stack.Mutex.Unlock()
 
 			for _, neighborIP := range stack.RipNeighbors {
@@ -244,13 +236,9 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 					continue
 				}
 				stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
-				// fmt.Println("loop 1")
 			}
-			// fmt.Println("done neighbor send")
 		}
 
 	}
 
 }
-
-// TODO maybe have time channel for ever 12 seconds?
