@@ -31,11 +31,18 @@ func (stack *IPStack) Ln() string {
 }
 
 func (stack *IPStack) Lr() string {
-	var res = "T     Prefix     Next hop    Cost"
+	var res = "T     Prefix       Next hop    Cost"
 	stack.Mutex.RLock()
 	for prefix, ipCostIfaceTuple := range stack.Forward_table {
 		cost_string := strconv.FormatUint(uint64(ipCostIfaceTuple.Cost), 10)
-		res += "\n" + prefix.String() + "   " + ipCostIfaceTuple.NextHopIP.String() + "   " + cost_string
+		nextHopStr := ipCostIfaceTuple.NextHopIP.String()
+		if (ipCostIfaceTuple.Type == "S") {
+			cost_string = "-"
+		}
+		if (ipCostIfaceTuple.Type == "L") {
+			nextHopStr = "LOCAL:" + stack.Interfaces[ipCostIfaceTuple.NextHopIP].Name
+		}
+		res += "\n" + ipCostIfaceTuple.Type + "     " + prefix.String() + "  " + nextHopStr + "   " + cost_string
 	}
 	stack.Mutex.RUnlock()
 	return res

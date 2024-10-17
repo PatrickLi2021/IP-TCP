@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"fmt"
-	"net/netip"
 	"strconv"
 	"time"
 )
@@ -39,9 +38,17 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 				continue
 			}
 
-			// Convert IP address into uint32)
-			addressInt, _ := ConvertToUint32(prefix.Addr())
-			maskInt, _ := ConvertToUint32(prefix.Masked().Addr())
+			// Convert IP address into uint32
+			addressInt, err := ConvertAddrToUint32(prefix.Addr())
+			if (err != nil) {
+				fmt.Println(err)
+				continue
+			}
+			maskInt, err := ConvertPrefixToUint32(prefix)
+			if (err != nil) {
+				fmt.Println(err)
+				continue
+			}
 
 			entry := RIPEntry{
 				Cost:    uint32(tuple.Cost),
@@ -65,8 +72,7 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 			return
 		}
 		stack.SendIP(nil, 32, destIP, 200, ripBytes)
-		fmt.Println("sending forward table for rip to = ")
-		fmt.Println(destIP)
+
 	} else if ripPacket.Command == 2 {
 		// list of entries that are new to send out for triggered update
 		updatedEntries := make([]RIPEntry, 0)
@@ -76,22 +82,13 @@ func (stack *IPStack) RIPPacketHandler(packet *IPPacket) {
 		stack.Mutex.Lock()
 		for i := 0; i < int(ripPacket.Num_entries); i++ {
 			entry := entryUpdates[i]
-			entryAddress := netip.IPv4Unspecified()
-			entryAddress, err := Uint32ToAddr(entry.Address, entryAddress)
+			entryAddress, err := Uint32ToAddr(entry.Address)
 			if err != nil {
 				fmt.Println("error converting uint32 to net ip addr")
 				fmt.Println(err)
 				return
 			}
-			entryMask := netip.IPv4Unspecified()
-			entryMask, err = Uint32ToAddr(entry.Mask, entryMask)
-			if err != nil {
-				fmt.Println("error converting uint32 to mask")
-				fmt.Println(err)
-				return
-			}
-			entryPrefix, err := entryAddress.Prefix(entryMask.BitLen() - 8)
-			// TODO ^^^^^
+			entryPrefix, err := ConvertUint32ToPrefix(entry.Mask, entryAddress)
 			if err != nil {
 				fmt.Println("error converting uint32 to net ip prefix")
 				fmt.Println(err)

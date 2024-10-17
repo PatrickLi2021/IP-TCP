@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"bytes"
 	"fmt"
 	"ip-ip-pa/lnxconfig"
 	"net"
@@ -142,6 +141,7 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 				fmt.Println(err)
 				return nil
 			}
+			fmt.Println(requestBytes)
 			stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
 		}		
 	}
@@ -229,7 +229,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
-	bytesToSend = bytes.TrimRight(bytesToSend, "\x00")
+	// bytesToSend = bytes.TrimRight(bytesToSend, "\x00")
 
 	// TODO
 	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)

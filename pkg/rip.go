@@ -39,9 +39,19 @@ func MarshalRIP(ripPacket *RIPPacket) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = binary.Write(buf, binary.BigEndian, ripPacket.Entries)
-	if err != nil {
-		return nil, err
+	for _, entry := range ripPacket.Entries {
+		err := binary.Write(buf, binary.BigEndian, entry.Cost)
+		if err != nil {
+			return nil, err
+		}
+		err = binary.Write(buf, binary.BigEndian, entry.Address)
+		if err != nil {
+			return nil, err
+		}
+		err = binary.Write(buf, binary.BigEndian, entry.Mask)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return buf.Bytes(), nil
 }

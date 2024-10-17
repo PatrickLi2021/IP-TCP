@@ -31,20 +31,20 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 				entries := make([]protocol.RIPEntry, 0)
 				// loop to accumulate entries to send as periodic update
 				stack.Mutex.RLock()
-				for mask, tuple := range stack.Forward_table {
+				for prefix, tuple := range stack.Forward_table {
 					if tuple.Type == "S" {
 						// default routes
 						continue
 					}
 
 					// Convert IP address into uint32
-					ipInteger, err := protocol.ConvertToUint32(tuple.NextHopIP)
+					ipInteger, err := protocol.ConvertAddrToUint32(tuple.NextHopIP)
 					if err != nil {
 						continue
 					}
 
-					// Convert prefix/mask into uint32
-					prefixInteger, err := protocol.ConvertToUint32(mask.Addr())
+					// Convert prefix into mask into uint32
+					prefixInteger, err := protocol.ConvertPrefixToUint32(prefix)
 					if err != nil {
 						continue
 					}
@@ -73,7 +73,6 @@ func routerPeriodicSend(stack *protocol.IPStack) {
 						fmt.Println(err)
 						return
 					}
-
 					stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
 				}
 			}
@@ -118,7 +117,7 @@ func main() {
 		} else if userInput == "ln" {
 			fmt.Println(stack.Ln())
 		} else if userInput == "lr" {
-			// TODO
+			fmt.Println(stack.Lr())
 		} else if len(userInput) >= 6 && userInput[0:4] == "down" {
 			interfaceName := userInput[5:]
 			stack.Down(interfaceName)
@@ -172,11 +171,11 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 					stack.Forward_table[prefix].Cost = 16
 
 					// make new entry to to add list of deleted entries to send in triggered update
-					addressInt, err := protocol.ConvertToUint32(prefix.Addr())
+					addressInt, err := protocol.ConvertAddrToUint32(prefix.Addr())
 					if (err != nil) {
 						continue
 					}
-					maskInt, err := protocol.ConvertToUint32(prefix.Masked().Addr())
+					maskInt, err := protocol.ConvertPrefixToUint32(prefix)
 					if (err != nil) {
 						continue
 					}
@@ -211,25 +210,18 @@ func cleanExpiredRoutes(stack *protocol.IPStack) {
 			// delete expired routes from forwarding table
 			stack.Mutex.Lock()
 			for _, entry := range deletedEntries {
-				entryAddress := netip.IPv4Unspecified()
-				entryAddress, err := protocol.Uint32ToAddr(entry.Address, entryAddress)
+				entryAddress, err := protocol.Uint32ToAddr(entry.Address)
 				if err != nil {
 					fmt.Println("error converting uint32 to net ip addr")
 					fmt.Println(err)
 					continue
 				}
-				entryMask := netip.IPv4Unspecified()
-				entryMask, err = protocol.Uint32ToAddr(entry.Mask, entryMask)
+				entryPrefix, err := protocol.ConvertUint32ToPrefix(entry.Mask, entryAddress)
 				if err != nil {
-					fmt.Println("error converting uint32 to mask")
+					fmt.Println("error converting uint32 to prefix")
 					fmt.Println(err)
 					continue
 				}
-				entryPrefix, err := entryAddress.Prefix(entryMask.BitLen() - 8)
-				if (err != nil) {
-					continue
-				}
-				// TODO ^^^^ -8 is janky
 				delete(stack.Forward_table, entryPrefix)
 			}
 			stack.Mutex.Unlock()
