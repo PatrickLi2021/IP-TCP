@@ -6,7 +6,7 @@ import "strconv"
 func (stack *IPStack) Li() string {
 	var res = "Name Addr/Prefix  State"
 	for _, iface := range stack.Interfaces {
-		res += "\n" + iface.Name + "  " + iface.Prefix.String()
+		res += "\n" + iface.Name + "  " + iface.IP.String() + "/" + strconv.Itoa(iface.Prefix.Bits())
 		if iface.Down {
 			res += "  down"
 		} else {
