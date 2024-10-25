@@ -259,11 +259,6 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 		return stack.findPrefixMatch(bestTuple.NextHopIP)
 	}
 
-	// // have not hit a default catch all, so check interface first to see if it matches dest
-	// if (bestTuple.Interface.IP == addr) {
-	// 	udpAddr := stack.Interfaces[bestTuple.Interface.IP].Udp
-	// 	return nil, udpAddr // would use same src as interface that received the packet
-	// }
 	// otherwise, loop thru all of interfaces neighbors
 	for ip, port := range bestTuple.Interface.Neighbors {
 		if ip == addr {
