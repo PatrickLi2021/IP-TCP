@@ -14,8 +14,8 @@
 *.lnx
 
 # Binaries for submission
-./host
-./vhost
-./router
-./vrouter
+/host
+/vhost
+/router
+/vrouter
 
