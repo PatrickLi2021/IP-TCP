@@ -2,10 +2,10 @@ package protocol
 
 import (
 	"fmt"
-	"ip-ip-pa/lnxconfig"
 	"net"
 	"net/netip"
 	"sync"
+	"tcp-tcp-team-pa/lnxconfig"
 	"time"
 
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
@@ -59,10 +59,10 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 	stack.NameToInterface = make(map[string]*Interface)
 	stack.Mutex = sync.RWMutex{}
 
-	if (stack.RoutingType == 2) {
+	if stack.RoutingType == 2 {
 		// register rip handler
 		// Add rip neighbors only if routing type IS RIP
-		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)	
+		stack.RegisterRecvHandler(200, stack.RIPPacketHandler)
 		stack.RipNeighbors = configInfo.RipNeighbors
 	}
 
@@ -123,10 +123,10 @@ func (stack *IPStack) Initialize(configInfo lnxconfig.IPConfig) error {
 		// Add default route entry only if routing type is NOT RIP (aka NOT 2)
 		for prefix, address := range configInfo.StaticRoutes {
 			stack.Forward_table[prefix] = &ipCostInterfaceTuple{
-				NextHopIP:   address,
-				Cost:        0, 
-				Interface:   nil,
-				Type:        "S",
+				NextHopIP: address,
+				Cost:      0,
+				Interface: nil,
+				Type:      "S",
 			}
 		}
 	}
@@ -137,7 +137,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	// check if sending to itself
 	for ip := range stack.Interfaces {
 		if ip == dest {
-			if (stack.Interfaces[ip].Down) {
+			if stack.Interfaces[ip].Down {
 				// interface is down, don't call callback
 				return nil
 			}
@@ -151,7 +151,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 					ID:       0,
 					Flags:    0,
 					FragOff:  0,
-					TTL:      TTL-1,
+					TTL:      TTL - 1,
 					Protocol: int(protocolNum),
 					Checksum: 0, // Should be 0 until checksum is computed
 					Src:      dest,
@@ -291,7 +291,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	hdr, err := ipv4header.ParseHeader(buffer)
 	if err != nil {
 		fmt.Println("Error parsing header", err)
-		return nil 
+		return nil
 	}
 
 	hdrSize := hdr.Len

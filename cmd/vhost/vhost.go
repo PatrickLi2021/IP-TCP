@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"ip-ip-pa/lnxconfig"
-	protocol "ip-ip-pa/pkg"
 	"net/netip"
 	"os"
 	"strings"
+	"tcp-tcp-team-pa/lnxconfig"
+	protocol "tcp-tcp-team-pa/pkg"
 )
 
 func listen(stack *protocol.IPStack, iface *protocol.Interface) {

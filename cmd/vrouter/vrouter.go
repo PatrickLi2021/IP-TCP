@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"ip-ip-pa/lnxconfig"
-	protocol "ip-ip-pa/pkg"
 	"net/netip"
 	"os"
 	"strings"
+	"tcp-tcp-team-pa/lnxconfig"
+	protocol "tcp-tcp-team-pa/pkg"
 	"time"
 )
 
@@ -116,7 +116,7 @@ func main() {
 		}
 		time.Sleep(1 * time.Second)
 		stack.SendIP(nil, 32, neighborIp, 200, requestBytes)
-	}	
+	}
 
 	// thread to send router udpates to rip neighbors every 5 secs
 	go routerPeriodicSend(stack)
@@ -176,25 +176,25 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 
 			stack.Mutex.RLock()
 			for prefix, iFaceTuple := range stack.Forward_table {
-				if (iFaceTuple.Type != "R") {
+				if iFaceTuple.Type != "R" {
 					// skip over local routes and static, default routes
 					continue
 				}
 
-				if ( (time.Now().Sub(iFaceTuple.LastRefresh)) > (12 * time.Second) ) {
+				if (time.Now().Sub(iFaceTuple.LastRefresh)) > (12 * time.Second) {
 					// make new entry to to add list of deleted entries to send in triggered update
 					addressInt, err := protocol.ConvertAddrToUint32(prefix.Addr())
-					if (err != nil) {
+					if err != nil {
 						continue
 					}
 					maskInt, err := protocol.ConvertPrefixToUint32(prefix)
-					if (err != nil) {
+					if err != nil {
 						continue
 					}
 					ripEntry := protocol.RIPEntry{
-						Cost: 16,
+						Cost:    16,
 						Address: addressInt,
-						Mask: maskInt,
+						Mask:    maskInt,
 					}
 					deletedEntries = append(deletedEntries, ripEntry)
 				}
@@ -202,7 +202,7 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 			stack.Mutex.RUnlock()
 
 			// send triggered update, don't account for split horizon, because all changed routes have cost 16
-			if (len(deletedEntries) == 0) {
+			if len(deletedEntries) == 0 {
 				continue
 			}
 
@@ -227,12 +227,12 @@ func cleanExpiredRoutesTicker(stack *protocol.IPStack) {
 
 			for _, neighborIP := range stack.RipNeighbors {
 				ripUpdate := &protocol.RIPPacket{
-					Command: 2,
+					Command:     2,
 					Num_entries: uint16(len(deletedEntries)),
-					Entries: deletedEntries,
+					Entries:     deletedEntries,
 				}
 				ripBytes, err := protocol.MarshalRIP(ripUpdate)
-				if (err != nil) {
+				if err != nil {
 					continue
 				}
 				stack.SendIP(nil, 32, neighborIP, 200, ripBytes)
