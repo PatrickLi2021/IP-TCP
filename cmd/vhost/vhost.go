@@ -5,16 +5,30 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"tcp-tcp-team-pa/lnxconfig"
 	protocol "tcp-tcp-team-pa/pkg"
+	tcp_protocol "tcp-tcp-team-pa/tcp_pkg"
 )
 
-func listen(stack *protocol.IPStack, iface *protocol.Interface) {
+func listen(ipStack *protocol.IPStack, iface *protocol.Interface) {
 	// Since this is a host, we only listen on one interface
 	for {
-		stack.Receive(stack.Interfaces[iface.IP])
+		ipStack.Receive(ipStack.Interfaces[iface.IP])
 	}
+}
+
+func getOnlyKey(m map[netip.Addr]*protocol.Interface) netip.Addr {
+	for k := range m {
+		return k
+	}
+	var empty_addr netip.Addr
+	return empty_addr
+}
+
+func handleTCP() {
+
 }
 
 func main() {
@@ -30,12 +44,16 @@ func main() {
 		fmt.Println("error parsing config file")
 		return
 	}
-	// Create a new host node
-	var stack *protocol.IPStack = &protocol.IPStack{}
-	stack.Initialize(*lnxConfig)
+	// Create a new IP stack
+	var ipStack *protocol.IPStack = &protocol.IPStack{}
+	ipStack.Initialize(*lnxConfig)
 
-	for _, iface := range stack.Interfaces {
-		go listen(stack, iface)
+	// Create a new TCP stack
+	var tcpStack *tcp_protocol.TCPStack = &tcp_protocol.TCPStack{}
+	tcpStack.Initialize(getOnlyKey(ipStack.Interfaces), ipStack)
+
+	for _, iface := range ipStack.Interfaces {
+		go listen(ipStack, iface)
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -45,21 +63,21 @@ func main() {
 		userInput := scanner.Text()
 
 		if userInput == "li" {
-			fmt.Println(stack.Li())
+			fmt.Println(ipStack.Li())
 
 		} else if userInput == "ln" {
-			fmt.Println(stack.Ln())
+			fmt.Println(ipStack.Ln())
 
 		} else if userInput == "lr" {
-			fmt.Println(stack.Lr())
+			fmt.Println(ipStack.Lr())
 
 		} else if len(userInput) >= 6 && userInput[0:4] == "down" {
 			interfaceName := userInput[5:]
-			stack.Down(interfaceName)
+			ipStack.Down(interfaceName)
 
 		} else if len(userInput) >= 4 && userInput[0:2] == "up" {
 			interfaceName := userInput[3:]
-			stack.Up(interfaceName)
+			ipStack.Up(interfaceName)
 
 		} else if len(userInput) >= 6 && userInput[0:4] == "send" {
 			var spaceIdx = strings.Index(userInput[5:], " ") + 5
@@ -75,7 +93,12 @@ func main() {
 				continue
 			}
 
-			stack.SendIP(nil, 32, destIP, 0, []byte(message))
+			ipStack.SendIP(nil, 32, destIP, 0, []byte(message))
+		} else if userInput == "ls" {
+			tcpStack.ListSockets()
+		} else if len(userInput) == 7 && userInput[0:1] == "a" {
+			port, _ := strconv.ParseUint(userInput[2:], 10, 16)
+			tcpStack.ACommand(uint16(port))
 		} else {
 			fmt.Println("Invalid command.")
 			continue
