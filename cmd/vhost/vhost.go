@@ -9,7 +9,6 @@ import (
 	"strings"
 	"tcp-tcp-team-pa/lnxconfig"
 	protocol "tcp-tcp-team-pa/pkg"
-	tcp_protocol "tcp-tcp-team-pa/tcp_pkg"
 )
 
 func listen(ipStack *protocol.IPStack, iface *protocol.Interface) {
@@ -48,13 +47,13 @@ func main() {
 	var ipStack *protocol.IPStack = &protocol.IPStack{}
 	ipStack.Initialize(*lnxConfig)
 
-	// Create a new TCP stack
-	var tcpStack *tcp_protocol.TCPStack = &tcp_protocol.TCPStack{}
-	tcpStack.Initialize(getOnlyKey(ipStack.Interfaces), ipStack)
-
 	for _, iface := range ipStack.Interfaces {
 		go listen(ipStack, iface)
 	}
+
+	// Create a new TCP stack
+	var tcpStack *protocol.TCPStack = &protocol.TCPStack{}
+	tcpStack.Initialize(getOnlyKey(ipStack.Interfaces), ipStack)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Println("Enter command:")
@@ -96,9 +95,31 @@ func main() {
 			ipStack.SendIP(nil, 32, destIP, 0, []byte(message))
 		} else if userInput == "ls" {
 			tcpStack.ListSockets()
-		} else if len(userInput) == 7 && userInput[0:1] == "a" {
-			port, _ := strconv.ParseUint(userInput[2:], 10, 16)
-			tcpStack.ACommand(uint16(port))
+		} else if len(userInput) > 2 && userInput[0:2] == "a " {
+			port, err := strconv.ParseUint(userInput[2:], 10, 16)
+			if (err != nil) {
+				fmt.Println(err)
+				continue
+			} 
+			go tcpStack.ACommand(uint16(port))
+		} else if len(userInput) > 10 && userInput[0:2] == "c " {
+			inputs := strings.Fields(userInput[2:])
+			ip, err := netip.ParseAddr(inputs[0])
+			if (err != nil) {
+				fmt.Println(err)
+				continue
+			}
+			port, err := strconv.ParseUint(inputs[1], 10, 16)
+			if (err != nil) {
+				fmt.Println(err)
+				continue
+			}
+			_, err = tcpStack.VConnect(ip, uint16(port))
+			if (err != nil) {
+				fmt.Println(err)
+				continue
+			}
+
 		} else {
 			fmt.Println("Invalid command.")
 			continue

@@ -12,8 +12,6 @@ import (
 	"github.com/google/netstack/tcpip/header"
 )
 
-const MAX_PACKET_SIZE = 1400
-
 type IPPacket struct {
 	Header  ipv4header.IPv4Header
 	Payload []byte
@@ -214,13 +212,13 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
-	// bytesToSend = bytes.TrimRight(bytesToSend, "\x00")
 
 	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
+
 	if protocolNum == 0 {
 		fmt.Printf("Sent %d bytes\n", bytesWritten)
 	}
@@ -277,8 +275,9 @@ func (stack *IPStack) findPrefixMatch(addr netip.Addr) (*netip.Addr, *net.UDPAdd
 }
 
 func (stack *IPStack) Receive(iface *Interface) error {
-	buffer := make([]byte, MAX_PACKET_SIZE)
+	buffer := make([]byte, 1400)
 	_, _, err := iface.Conn.ReadFromUDP(buffer)
+
 	if iface.Down {
 		// if down can't receive
 		return nil
@@ -310,7 +309,10 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	}
 
 	// packet payload
-	message := buffer[hdrSize:]
+	message := buffer[hdrSize:hdr.TotalLen]
+	// TODO: 
+	// TotalLen
+	// message = bytes.TrimRight(message, "\x00")
 
 	// check packet's dest ip
 	correctDest := hdr.Dst == iface.IP

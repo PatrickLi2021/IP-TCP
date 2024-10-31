@@ -1,21 +1,13 @@
-package tcp_protocol
+package protocol
 
 import (
 	"fmt"
-	"github.com/google/netstack/tcpip/header"
 	"math/rand"
 	"net/netip"
 	"tcp-tcp-team-pa/iptcp_utils"
-	protocol "tcp-tcp-team-pa/pkg"
-)
 
-func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *protocol.IPStack) {
-	tcpStack.IPStack = *ipStack
-	tcpStack.IP = localIP
-	tcpStack.ListenTable = make(map[*FourTuple]*TCPListener)
-	tcpStack.ConnectionsTable = make(map[*FourTuple]*TCPConn)
-	tcpStack.NextSocketID = 0
-}
+	"github.com/google/netstack/tcpip/header"
+)
 
 func (stack *TCPStack) VListen(port uint16) (*TCPListener, error) {
 	// Create TCPListener struct
@@ -27,27 +19,22 @@ func (stack *TCPStack) VListen(port uint16) (*TCPListener, error) {
 		LocalAddr:  empty_addr,
 		RemotePort: 0,
 		RemoteAddr: empty_addr,
-	}
-	// Create a 4-tuple for this listen socket
-	fourTuple := FourTuple{
-		remotePort: 0,
-		remoteAddr: empty_addr,
-		srcPort:    port,
-		srcAddr:    empty_addr,
+		Channel: make(chan *TCPConn),
 	}
 
 	// Edit the stack's listen table
-	stack.ListenTable[&fourTuple] = tcpListener
+	stack.ListenTable[port] = tcpListener
 	stack.NextSocketID++
+	fmt.Println("HELLO");
 	return tcpListener, nil
 }
 
 func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPConn, error) {
 	// Initiate a connection (created a "normal socket")
-	min := uint16(20000)
-	max := uint16(65535 - 20000)
 
 	// Generate a random port number
+	min := uint16(20000)
+	max := uint16(65535 - 20000)
 	randomNum := min + uint16(rand.Intn(int(max)))
 
 	// Select random 32-bit integer for sequence number
@@ -64,7 +51,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		SeqNum:     seqNum,
 	}
 
-	fourTuple := &FourTuple{
+	fourTuple := FourTuple{
 		remotePort: remotePort,
 		remoteAddr: remoteAddr,
 		srcPort:    randomNum,
@@ -83,8 +70,9 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	return tcpConnection, nil
 }
 
-func (tcpListener TCPListener) VAccept() (*TCPConn, error) {
-	return nil, nil
+func (tcpListener *TCPListener) VAccept() (*TCPConn, error) {
+	tcpConn := <- tcpListener.Channel 
+	return tcpConn, nil
 }
 
 // tcpListener maps this connection to the open listen socket
@@ -125,6 +113,6 @@ func (tcpConn *TCPConn) sendTCP(data []byte, flags uint32, seqNum uint32, ackNum
 	ipPacketPayload := make([]byte, 0, len(tcpHeaderBytes)+len(data))
 	ipPacketPayload = append(ipPacketPayload, tcpHeaderBytes...)
 	ipPacketPayload = append(ipPacketPayload, []byte(data)...)
-	tcpConn.TCPStack.IPStack.SendIP(&tcpConn.LocalAddr, 16, tcpConn.RemoteAddr, 6, ipPacketPayload)
+	tcpConn.TCPStack.IPStack.SendIP(&tcpConn.LocalAddr, 32, tcpConn.RemoteAddr, 6, ipPacketPayload)
 	return nil
 }

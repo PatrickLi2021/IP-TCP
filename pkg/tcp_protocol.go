@@ -1,14 +1,13 @@
-package tcp_protocol
+package protocol
 
 import (
-	"errors"
 	"fmt"
-	"github.com/google/netstack/tcpip/header"
 	"math/rand/v2"
 	"net/netip"
 	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
-	protocol "tcp-tcp-team-pa/pkg"
+
+	"github.com/google/netstack/tcpip/header"
 )
 
 type TCPState int
@@ -25,7 +24,7 @@ type TCPListener struct {
 	RemotePort uint16
 	RemoteAddr netip.Addr
 	TCPStack   *TCPStack
-	Channel    chan *protocol.IPPacket
+	Channel    chan *TCPConn
 }
 
 type TCPConn struct {
@@ -37,15 +36,15 @@ type TCPConn struct {
 	RemoteAddr netip.Addr
 	TCPStack   *TCPStack
 	SeqNum     uint32
-	Channel    chan *protocol.IPPacket
 }
 
 type TCPStack struct {
-	ListenTable      map[*FourTuple]*TCPListener
-	ConnectionsTable map[*FourTuple]*TCPConn
+	ListenTable      map[uint16]*TCPListener
+	ConnectionsTable map[FourTuple]*TCPConn
 	IP               netip.Addr
 	NextSocketID     uint16 // unique ID for each sockets per node
-	IPStack          protocol.IPStack
+	IPStack          IPStack
+	Channel 				 chan *TCPConn
 }
 
 type FourTuple struct {
@@ -55,7 +54,7 @@ type FourTuple struct {
 	srcAddr    netip.Addr
 }
 
-func (tcpStack *TCPStack) TCPHandler(packet *protocol.IPPacket) error {
+func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	// Retrieve the IP header and IP payload (which contains TCP header and TCP payload)
 	ipHdr := packet.Header
 	tcpHeaderAndData := packet.Payload
@@ -70,23 +69,50 @@ func (tcpStack *TCPStack) TCPHandler(packet *protocol.IPPacket) error {
 	tcpComputedChecksum := iptcp_utils.ComputeTCPChecksum(&tcpHdr, ipHdr.Src, ipHdr.Dst, tcpPayload)
 
 	if tcpComputedChecksum != tcpChecksumFromHeader {
-		return errors.New("checksum is not correct")
+		fmt.Println("checksum is not correct")
+		return
 	}
 
 	// Get the port and flags
-	fourTuple := &FourTuple{
-		remotePort: tcpHdr.DstPort,
-		remoteAddr: ipHdr.Dst,
-		srcPort:    tcpHdr.SrcPort,
-		srcAddr:    ipHdr.Src,
+	fourTuple := FourTuple{
+		remotePort: tcpHdr.SrcPort,
+		remoteAddr: ipHdr.Src,
+		srcPort:    tcpHdr.DstPort,
+		srcAddr:    ipHdr.Dst,
 	}
+	
+	tcpConn, normal_exists := tcpStack.ConnectionsTable[fourTuple]
 
-	if tcpHdr.Flags == header.TCPFlagSyn {
-		_, exists := tcpStack.ListenTable[fourTuple]
-		if !exists {
-			return errors.New("associated listener not found on this node")
+	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
+	if (normal_exists) {
+		if (tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck)) {
+			// Send ACK back to server
+			flags := header.TCPFlagAck
+			// TODO per notes should the SEQ bec just ack or ack + 1?
+			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpHdr.SeqNum+1)
+			if err != nil {
+				fmt.Println("Could not sent SYN packet")
+				return
+			}
+			tcpConn.State = "ESTABLISHED"
 		}
-		// Create new TCPConnection
+		if (tcpHdr.Flags == header.TCPFlagAck) {
+			// update socket state to established
+			tcpConn.State = "ESTABLISHED"
+
+			// TODO: communicate that handshake is done thru channeL?
+			listenConn.Channel <- tcpConn
+		}
+		return
+	} else if (listen_exists) {
+		// create new connection
+		if (tcpHdr.Flags != header.TCPFlagSyn) {
+			// drop packet because only syn flag should be set and other flags are set
+			return
+		}
+
+		// valid syn flag
+		// Create new normal socket
 		seqNum := int(rand.Uint32())
 		tcpConn := &TCPConn{
 			State:      "SYN_RECEIVED",
@@ -96,35 +122,43 @@ func (tcpStack *TCPStack) TCPHandler(packet *protocol.IPPacket) error {
 			RemoteAddr: ipHdr.Src,
 			TCPStack:   tcpStack,
 			SeqNum:     uint32(seqNum),
-			Channel:    make(chan *protocol.IPPacket),
 		}
-		// Add to this TCP stack's connection table (each node needs a copy of this connection in it's OWN socket table)
-		tcpStack.ConnectionsTable[fourTuple] = tcpConn
-		tcpStack.NextSocketID++
 
+		// add the new normal socket to tcp stack's connections table
+		tuple := FourTuple{
+			remotePort: tcpConn.RemotePort,
+			remoteAddr: tcpConn.RemoteAddr,
+			srcPort: tcpConn.LocalPort,
+			srcAddr: tcpConn.LocalAddr,
+		}
+		tcpStack.ConnectionsTable[tuple] = tcpConn
+
+		// increment next socket id - used when listing out all sockets
+		tcpStack.NextSocketID++
+		
 		// Send a SYN-ACK back to client
 		flags := header.TCPFlagSyn | header.TCPFlagAck
 		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), uint32(tcpHdr.SeqNum+1))
-		if err != nil {
-			fmt.Println("Could not sent SYN packet")
-			return err
+		if (err != nil) {
+			fmt.Println("Error - Could not send SYN-ACK back")
+			return
 		}
-	} else if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) {
-		// Consult connections table for socket
-		tcpConn, exists := tcpStack.ConnectionsTable[fourTuple]
-		if !exists {
-			return errors.New("associated connection not found on this node")
-		}
-		tcpConn.State = "ESTABLISHED"
-		// Send ACK back to server
-		flags := header.TCPFlagAck
-		err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum+1, tcpHdr.SeqNum+1)
-		if err != nil {
-			fmt.Println("Could not sent SYN packet")
-			return err
-		}
+
+	} else {
+		// drop packet
+		return
 	}
-	return nil
+}
+
+func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
+	tcpStack.IPStack = *ipStack
+	tcpStack.IP = localIP
+	tcpStack.ListenTable = make(map[uint16]*TCPListener)
+	tcpStack.ConnectionsTable = make(map[FourTuple]*TCPConn)
+	tcpStack.NextSocketID = 0
+
+	// register tcp packet handler
+	tcpStack.IPStack.RegisterRecvHandler(6, tcpStack.TCPHandler)
 }
 
 func (tcpStack *TCPStack) ListSockets() {
@@ -145,17 +179,22 @@ func (tcpStack *TCPStack) ACommand(port uint16) {
 		fmt.Println(err)
 		return
 	}
+	fmt.Println("Created listen socket")
 	for {
-		conn, err := listenConn.VAccept()
+		_, err := listenConn.VAccept()
 		if err != nil {
 			fmt.Println(err)
 			return
-		}
+		} 
+		fmt.Println("listen conn created")
+		// else {
+		// 	go conn.VRead()???
+		// }
 	}
 }
 
 func (tcpConn *TCPConn) VRead(buf []byte) (int, error) {
-
+	return 0, nil
 }
 
 func (tcpStack *TCPStack) CCommand(ip netip.Addr, port uint16) {
