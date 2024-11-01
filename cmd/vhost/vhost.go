@@ -22,8 +22,8 @@ func getOnlyKey(m map[netip.Addr]*protocol.Interface) netip.Addr {
 	for k := range m {
 		return k
 	}
-	var empty_addr netip.Addr
-	return empty_addr
+	emptyAddr, _ := netip.ParseAddr("0.0.0.0")
+	return emptyAddr
 }
 
 func handleTCP() {
@@ -97,25 +97,25 @@ func main() {
 			tcpStack.ListSockets()
 		} else if len(userInput) > 2 && userInput[0:2] == "a " {
 			port, err := strconv.ParseUint(userInput[2:], 10, 16)
-			if (err != nil) {
+			if err != nil {
 				fmt.Println(err)
 				continue
-			} 
+			}
 			go tcpStack.ACommand(uint16(port))
 		} else if len(userInput) > 10 && userInput[0:2] == "c " {
 			inputs := strings.Fields(userInput[2:])
 			ip, err := netip.ParseAddr(inputs[0])
-			if (err != nil) {
+			if err != nil {
 				fmt.Println(err)
 				continue
 			}
 			port, err := strconv.ParseUint(inputs[1], 10, 16)
-			if (err != nil) {
+			if err != nil {
 				fmt.Println(err)
 				continue
 			}
 			_, err = tcpStack.VConnect(ip, uint16(port))
-			if (err != nil) {
+			if err != nil {
 				fmt.Println(err)
 				continue
 			}

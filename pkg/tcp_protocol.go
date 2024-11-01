@@ -44,7 +44,7 @@ type TCPStack struct {
 	IP               netip.Addr
 	NextSocketID     uint16 // unique ID for each sockets per node
 	IPStack          IPStack
-	Channel 				 chan *TCPConn
+	Channel          chan *TCPConn
 }
 
 type FourTuple struct {
@@ -80,12 +80,12 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		srcPort:    tcpHdr.DstPort,
 		srcAddr:    ipHdr.Dst,
 	}
-	
+
 	tcpConn, normal_exists := tcpStack.ConnectionsTable[fourTuple]
 
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
-	if (normal_exists) {
-		if (tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck)) {
+	if normal_exists {
+		if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) {
 			// Send ACK back to server
 			flags := header.TCPFlagAck
 			// TODO per notes should the SEQ bec just ack or ack + 1?
@@ -96,7 +96,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 			tcpConn.State = "ESTABLISHED"
 		}
-		if (tcpHdr.Flags == header.TCPFlagAck) {
+		if tcpHdr.Flags == header.TCPFlagAck {
 			// update socket state to established
 			tcpConn.State = "ESTABLISHED"
 
@@ -104,9 +104,9 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			listenConn.Channel <- tcpConn
 		}
 		return
-	} else if (listen_exists) {
+	} else if listen_exists {
 		// create new connection
-		if (tcpHdr.Flags != header.TCPFlagSyn) {
+		if tcpHdr.Flags != header.TCPFlagSyn {
 			// drop packet because only syn flag should be set and other flags are set
 			return
 		}
@@ -128,18 +128,18 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		tuple := FourTuple{
 			remotePort: tcpConn.RemotePort,
 			remoteAddr: tcpConn.RemoteAddr,
-			srcPort: tcpConn.LocalPort,
-			srcAddr: tcpConn.LocalAddr,
+			srcPort:    tcpConn.LocalPort,
+			srcAddr:    tcpConn.LocalAddr,
 		}
 		tcpStack.ConnectionsTable[tuple] = tcpConn
 
 		// increment next socket id - used when listing out all sockets
 		tcpStack.NextSocketID++
-		
+
 		// Send a SYN-ACK back to client
 		flags := header.TCPFlagSyn | header.TCPFlagAck
 		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), uint32(tcpHdr.SeqNum+1))
-		if (err != nil) {
+		if err != nil {
 			fmt.Println("Error - Could not send SYN-ACK back")
 			return
 		}
@@ -161,15 +161,28 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 	tcpStack.IPStack.RegisterRecvHandler(6, tcpStack.TCPHandler)
 }
 
+func formatAddr(addr netip.Addr) string {
+	// Check if addr is equal to the zero value of netip.Addr
+	if !addr.IsValid() {
+		return "*"
+	}
+	return addr.String()
+}
+
 func (tcpStack *TCPStack) ListSockets() {
-	fmt.Println("SID       LAddr     LPort      RAddr       RPort      Status")
+	uniqueId := 0
+	fmt.Println("SID  LAddr           LPort      RAddr          RPort    Status")
 	// Loop through all listener sockets on this node
 	for _, socket := range tcpStack.ListenTable {
-		fmt.Println(strconv.Itoa(int(socket.ID)) + " " + socket.LocalAddr.String() + " " + strconv.Itoa(int(socket.LocalPort)) + " " + socket.RemoteAddr.String() + " " + strconv.Itoa(int(socket.RemotePort)) + " " + socket.State)
+		localAddrStr := formatAddr(socket.LocalAddr)
+		remoteAddrStr := formatAddr(socket.RemoteAddr)
+		fmt.Println(strconv.Itoa(uniqueId) + "    " + localAddrStr + "         " + strconv.Itoa(int(socket.LocalPort)) + "       " + remoteAddrStr + "        " + strconv.Itoa(int(socket.RemotePort)) + "        " + socket.State)
+		uniqueId++
 	}
 	// Loop through all connection sockets on this node
 	for _, socket := range tcpStack.ConnectionsTable {
-		fmt.Println(strconv.Itoa(int(socket.ID)) + " " + socket.LocalAddr.String() + " " + strconv.Itoa(int(socket.LocalPort)) + " " + socket.RemoteAddr.String() + " " + strconv.Itoa(int(socket.RemotePort)) + " " + socket.State)
+		fmt.Println(strconv.Itoa(uniqueId) + "    " + socket.LocalAddr.String() + "        " + strconv.Itoa(int(socket.LocalPort)) + "      " + socket.RemoteAddr.String() + "       " + strconv.Itoa(int(socket.RemotePort)) + "     " + socket.State)
+		uniqueId++
 	}
 }
 
@@ -185,7 +198,7 @@ func (tcpStack *TCPStack) ACommand(port uint16) {
 		if err != nil {
 			fmt.Println(err)
 			return
-		} 
+		}
 		fmt.Println("listen conn created")
 		// else {
 		// 	go conn.VRead()???

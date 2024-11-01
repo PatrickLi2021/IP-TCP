@@ -11,21 +11,20 @@ import (
 
 func (stack *TCPStack) VListen(port uint16) (*TCPListener, error) {
 	// Create TCPListener struct
-	var empty_addr netip.Addr
+	emptyAddr, _ := netip.ParseAddr("0.0.0.0")
 	tcpListener := &TCPListener{
 		ID:         stack.NextSocketID,
 		State:      "LISTEN",
 		LocalPort:  port,
-		LocalAddr:  empty_addr,
+		LocalAddr:  emptyAddr,
 		RemotePort: 0,
-		RemoteAddr: empty_addr,
-		Channel: make(chan *TCPConn),
+		RemoteAddr: emptyAddr,
+		Channel:    make(chan *TCPConn),
 	}
 
 	// Edit the stack's listen table
 	stack.ListenTable[port] = tcpListener
 	stack.NextSocketID++
-	fmt.Println("HELLO");
 	return tcpListener, nil
 }
 
@@ -71,7 +70,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 }
 
 func (tcpListener *TCPListener) VAccept() (*TCPConn, error) {
-	tcpConn := <- tcpListener.Channel 
+	tcpConn := <-tcpListener.Channel
 	return tcpConn, nil
 }
 
