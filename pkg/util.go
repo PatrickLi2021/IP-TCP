@@ -36,3 +36,11 @@ func ConvertUint32ToPrefix(input uint32, addr netip.Addr) (netip.Prefix, error) 
 	prefix, err := addr.Prefix(maskLen)
 	return prefix, err
 }
+
+func formatAddr(addr netip.Addr) string {
+	// Check if addr is equal to the zero value of netip.Addr
+	if !addr.IsValid() {
+		return "*"
+	}
+	return addr.String()
+}

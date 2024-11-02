@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
-	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 
 	"github.com/google/netstack/tcpip/header"
 )
 
-type TCPState int
-
-const (
-	MaxMessageSize = 1400
-)
+type FourTuple struct {
+	remotePort uint16
+	remoteAddr netip.Addr
+	srcPort    uint16
+	srcAddr    netip.Addr
+}
 
 type TCPListener struct {
 	ID         uint16
@@ -37,7 +37,6 @@ type TCPConn struct {
 	TCPStack   *TCPStack
 	SeqNum     uint32
 	// buffers, initial seq num
-	// last wrote into buffer and where we read up to
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
 }
@@ -51,11 +50,15 @@ type TCPStack struct {
 	Channel          chan *TCPConn
 }
 
-type FourTuple struct {
-	remotePort uint16
-	remoteAddr netip.Addr
-	srcPort    uint16
-	srcAddr    netip.Addr
+func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
+	tcpStack.IPStack = *ipStack
+	tcpStack.IP = localIP
+	tcpStack.ListenTable = make(map[uint16]*TCPListener)
+	tcpStack.ConnectionsTable = make(map[FourTuple]*TCPConn)
+	tcpStack.NextSocketID = 0
+
+	// register tcp packet handler
+	tcpStack.IPStack.RegisterRecvHandler(6, tcpStack.TCPHandler)
 }
 
 func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
@@ -147,74 +150,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 	} else {
 		// drop packet
-		return
-	}
-}
-
-func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
-	tcpStack.IPStack = *ipStack
-	tcpStack.IP = localIP
-	tcpStack.ListenTable = make(map[uint16]*TCPListener)
-	tcpStack.ConnectionsTable = make(map[FourTuple]*TCPConn)
-	tcpStack.NextSocketID = 0
-
-	// register tcp packet handler
-	tcpStack.IPStack.RegisterRecvHandler(6, tcpStack.TCPHandler)
-}
-
-func formatAddr(addr netip.Addr) string {
-	// Check if addr is equal to the zero value of netip.Addr
-	if !addr.IsValid() {
-		return "*"
-	}
-	return addr.String()
-}
-
-func (tcpStack *TCPStack) ListSockets() {
-	uniqueId := 0
-	fmt.Println("SID  LAddr           LPort      RAddr          RPort    Status")
-	// Loop through all listener sockets on this node
-	for _, socket := range tcpStack.ListenTable {
-		localAddrStr := formatAddr(socket.LocalAddr)
-		remoteAddrStr := formatAddr(socket.RemoteAddr)
-		fmt.Println(strconv.Itoa(uniqueId) + "    " + localAddrStr + "         " + strconv.Itoa(int(socket.LocalPort)) + "       " + remoteAddrStr + "        " + strconv.Itoa(int(socket.RemotePort)) + "        " + socket.State)
-		uniqueId++
-	}
-	// Loop through all connection sockets on this node
-	for _, socket := range tcpStack.ConnectionsTable {
-		fmt.Println(strconv.Itoa(uniqueId) + "    " + socket.LocalAddr.String() + "        " + strconv.Itoa(int(socket.LocalPort)) + "      " + socket.RemoteAddr.String() + "       " + strconv.Itoa(int(socket.RemotePort)) + "     " + socket.State)
-		uniqueId++
-	}
-}
-
-func (tcpStack *TCPStack) ACommand(port uint16) {
-	listenConn, err := tcpStack.VListen(port)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("Created listen socket")
-	for {
-		_, err := listenConn.VAccept()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Println("listen conn created")
-		// else {
-		// 	go conn.VRead()???
-		// }
-	}
-}
-
-func (tcpConn *TCPConn) VRead(buf []byte) (int, error) {
-	return 0, nil
-}
-
-func (tcpStack *TCPStack) CCommand(ip netip.Addr, port uint16) {
-	_, err := tcpStack.VConnect(ip, port)
-	if err != nil {
-		fmt.Println(err)
 		return
 	}
 }
