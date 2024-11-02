@@ -36,6 +36,10 @@ type TCPConn struct {
 	RemoteAddr netip.Addr
 	TCPStack   *TCPStack
 	SeqNum     uint32
+	// buffers, initial seq num
+	// last wrote into buffer and where we read up to
+	// sliding window (send): some list or queue of in flight packets for retransmit
+	// rec side: out of order packets to track missing packets
 }
 
 type TCPStack struct {
@@ -85,22 +89,19 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
 	if normal_exists {
-		if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) {
+		if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
 			// Send ACK back to server
 			flags := header.TCPFlagAck
-			// TODO per notes should the SEQ bec just ack or ack + 1?
 			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpHdr.SeqNum+1)
 			if err != nil {
-				fmt.Println("Could not sent SYN packet")
+				fmt.Println("Could not sent ACK back")
 				return
 			}
 			tcpConn.State = "ESTABLISHED"
 		}
-		if tcpHdr.Flags == header.TCPFlagAck {
+		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
 			// update socket state to established
 			tcpConn.State = "ESTABLISHED"
-
-			// TODO: communicate that handshake is done thru channeL?
 			listenConn.Channel <- tcpConn
 		}
 		return
