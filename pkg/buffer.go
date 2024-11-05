@@ -1,7 +1,5 @@
 package protocol
 
-import "math"
-
 const BUFFER_SIZE = 65535
 
 type TCPSendBuffer struct {

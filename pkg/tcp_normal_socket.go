@@ -1,5 +1,9 @@
 package protocol
 
+import (
+	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
+)
+
 const (
 	maxPayloadSize = 1360 // 1400 bytes - IP header size - TCP header size
 )
@@ -9,36 +13,35 @@ func (tcpConn *TCPConn) VRead(buf []byte) (int, error) {
 }
 
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
-	bufferLen := len(tcpConn.SendBuf.Buffer)
-
 	// Block until there's space available
-	remainingSpace := bufferLen
-	for remainingSpace <= 0 {
-		<-tcpConn.SpaceOpen // Wait here if no space is available
-		remainingSpace = len(tcpConn.SendBuf.Buffer) - int(tcpConn.SendBuf.LBW) + int(tcpConn.SendBuf.UNA)
-	}
-
-	// Determine how many bytes of data to write into send buffer
+	// TODO: 
 	bytesToWrite := len(data)
-	if bytesToWrite > remainingSpace {
-		bytesToWrite = remainingSpace
-	}
-	start := int(tcpConn.SendBuf.LBW % uint32(bufferLen))
-	end := start + bytesToWrite
+	remainingSpace := tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA);
+	for bytesToWrite > 0 {
+		if (remainingSpace <= 0) {
+			<-tcpConn.SpaceOpen // Wait here if no space is available
+			// recalc remaining space once we get trigger that space has opened up
+			remainingSpace = tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA);
+		}
 
-	if end <= bufferLen {
-		// No wrap-around needed, just copy bytesToWrite into the send buffer
-		copy(tcpConn.SendBuf.Buffer[start:end], data[:bytesToWrite])
-	} else {
-		// Wrap-around required
-		section1 := bufferLen - start                                             // Bytes we can write up to the end of the buffer
-		copy(tcpConn.SendBuf.Buffer[start:], data[:section1])                     // Write first part
-		copy(tcpConn.SendBuf.Buffer[:end%bufferLen], data[section1:bytesToWrite]) // Write remaining part at the beginning
-	}
-	// Update LBW
-	tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + uint32(bytesToWrite)) % uint32(bufferLen)
+		// Determine how many bytes of data to write into send buffer
+		if bytesToWrite > remainingSpace {
+			bytesToWrite = remainingSpace
+		}
 
-	// Send out the bytes
+		for i := 1; i <= bytesToWrite; i ++ {
+			// writes data into send buf
+			tcpConn.SendBuf.Buffer[ (int(tcpConn.SendBuf.LBW) + i) % BUFFER_SIZE] = data[i-1]
+		}
+		// moves LBW pointer
+		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + uint32(bytesToWrite)) & BUFFER_SIZE
+
+		bytesToWrite = len(data) - bytesToWrite
+		// update data byte arr to remove bytes already written
+		data = data[bytesToWrite:]
+	}
+
+	// TODO: trigger sending bytes
 
 }
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
-
 	"github.com/google/netstack/tcpip/header"
 )
 
@@ -14,6 +13,7 @@ const (
 	TcpPseudoHeaderLen   = 12
 	IpProtoTcp           = header.TCPProtocolNumber
 	MaxVirtualPacketSize = 1400
+	BUFFER_SIZE = 65535
 )
 
 // Build a TCPFields struct from the TCP byte array
@@ -139,4 +139,13 @@ func TCPFlagsAsString(flags uint8) string {
 func TCPFieldsToString(hdr *header.TCPFields) string {
 	return fmt.Sprintf("{SrcPort:%d DstPort:%d, SeqNum:%d AckNum:%d DataOffset:%d Flags:%s WindowSize:%d Checksum:%x UrgentPointer:%d}",
 		hdr.SrcPort, hdr.DstPort, hdr.SeqNum, hdr.AckNum, hdr.DataOffset, TCPFlagsAsString(hdr.Flags), hdr.WindowSize, hdr.Checksum, hdr.UrgentPointer)
+}
+
+func CalculateRemainingSendBufSpace(LBW uint32, UNA uint32) int {
+	if (LBW >= UNA) {
+		return int(BUFFER_SIZE - (LBW - UNA) - 1);
+	} else {
+		// LBW < UNA
+		return int(BUFFER_SIZE - (UNA - LBW) - 2);
+	}
 }

@@ -38,7 +38,7 @@ type TCPConn struct {
 	SeqNum     uint32
 	SendBuf	   *TCPSendBuffer
 	RecvBuf	   *TCPRecvBuffer
-	SpaceOpen chan 
+	SpaceOpen  chan bool
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
@@ -121,12 +121,12 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		// valid syn flag
 		// Create new normal socket
 		seqNum := int(rand.Uint32())
-		SendBuf := &TCPBuffer{
+		SendBuf := &TCPSendBuffer{
 			Buffer: make([]byte, BUFFER_SIZE),
 			UNA: 0,
 			NXT: 0,
 			LBW: 0,
-			Channel: make(chan *TCPConn), // TODO subject to change
+			Channel: make(chan bool), // TODO subject to change
 		}
 		tcpConn := &TCPConn{
 			State:      "SYN_RECEIVED",

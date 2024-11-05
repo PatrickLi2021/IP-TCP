@@ -39,6 +39,14 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	// Select random 32-bit integer for sequence number
 	seqNum := rand.Uint32()
 
+	// creating send buf
+	SendBuf := &TCPSendBuffer{
+		Buffer: make([]byte, BUFFER_SIZE),
+		UNA: 0,
+		NXT: 0,
+		LBW: 0,
+		Channel: make(chan bool), // TODO subject to change
+	}
 	tcpConnection := &TCPConn{
 		ID:         stack.NextSocketID,
 		State:      "SYN_SENT",
@@ -48,6 +56,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		RemoteAddr: remoteAddr,
 		TCPStack:   stack,
 		SeqNum:     seqNum,
+		SendBuf:    SendBuf,
 	}
 
 	fourTuple := FourTuple{
