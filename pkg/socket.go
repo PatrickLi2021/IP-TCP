@@ -74,22 +74,6 @@ func (tcpListener *TCPListener) VAccept() (*TCPConn, error) {
 	return tcpConn, nil
 }
 
-// tcpListener maps this connection to the open listen socket
-
-// Creates a new normal socket
-
-// Send a SYN-ACK
-
-// Blocks until somebody connects and the socket is in the ESTABLISHED state
-// Once a packet is received, we create a new normal socket between the remote host
-// and our current node.
-// We need to modify our current node's table because we created a new socket in the SYN_RECEIVED STATE
-// We then send a SYN ACK back to the client
-// When the client receives this SYN_ACK, it consults its socket table and sees that there is already a match in the table. It then checks the state of this existing socket and sees that it is in SYN_SENT and we just received a SYN_ACK, so now we can set the state of that socket to ESTABLISHED
-// The client also sends back an ACK
-
-// At the very end, we want to return the normal socket, which should be in the state ESTABLISHED
-
 func (tcpConn *TCPConn) sendTCP(data []byte, flags uint32, seqNum uint32, ackNum uint32) error {
 	tcpHeader := header.TCPFields{
 		SrcPort:       tcpConn.LocalPort,

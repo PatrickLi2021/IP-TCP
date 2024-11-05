@@ -27,8 +27,6 @@ type TCPListener struct {
 	Channel    chan *TCPConn
 }
 
-
-
 type TCPConn struct {
 	ID         uint16
 	State      string
@@ -38,7 +36,9 @@ type TCPConn struct {
 	RemoteAddr netip.Addr
 	TCPStack   *TCPStack
 	SeqNum     uint32
-	SendBuf	*TCPBuffer
+	SendBuf	   *TCPSendBuffer
+	RecvBuf	   *TCPRecvBuffer
+	SpaceOpen chan 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
