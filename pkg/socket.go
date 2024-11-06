@@ -56,6 +56,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		RemoteAddr: remoteAddr,
 		TCPStack:   stack,
 		SeqNum:     seqNum,
+		ISN: 				seqNum,
 		SendBuf:    SendBuf,
 	}
 

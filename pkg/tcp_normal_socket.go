@@ -2,6 +2,8 @@ package protocol
 
 import (
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
+
+	"github.com/google/netstack/tcpip/header"
 )
 
 const (
@@ -42,8 +44,31 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	}
 
 	// TODO: trigger sending bytes
-
+	<- tcpConn.SendBuf.Channel
 }
+
+func (tcpConn *TCPConn) SendSegment() (error) {
+	value := <-tcpConn.SpaceOpen
+	if (!value) {
+		// no space, send segments from send buf
+		nxt := tcpConn.SendBuf.NXT
+		lbw := tcpConn.SendBuf.LBW
+		end_idx := lbw + 1
+		if (nxt <= lbw) {
+			bytesToSend := lbw - nxt + 1
+			if (bytesToSend > maxPayloadSize) {
+				end_idx = nxt + maxPayloadSize
+			}
+			tcpConn.sendTCP(tcpConn.SendBuf.Buffer[nxt: end_idx], header.TCPFlagAck, )
+		}
+		// TODO: track ISN or curr Seq #???
+
+	}
+}
+
+
+
+
 
 // VWrite writes into your send buffer and that wakes up some thread that's watching your send buffer and then you send the packet
 // On the other end, you have a thread that will wake up when you receive a segment. You load it into your receive buffer

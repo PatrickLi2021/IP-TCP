@@ -39,6 +39,8 @@ type TCPConn struct {
 	SendBuf	   *TCPSendBuffer
 	RecvBuf	   *TCPRecvBuffer
 	SpaceOpen  chan bool
+	ISN 			 uint32
+	ACK 			 uint32
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
@@ -98,7 +100,9 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
 			// Send ACK back to server
 			flags := header.TCPFlagAck
-			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpHdr.SeqNum+1)
+			tcpConn.SeqNum += 1
+			tcpConn.ACK = tcpHdr.SeqNum + 1
+			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpConn.ACK)
 			if err != nil {
 				fmt.Println("Could not sent ACK back")
 				return
@@ -136,6 +140,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			RemoteAddr: ipHdr.Src,
 			TCPStack:   tcpStack,
 			SeqNum:     uint32(seqNum),
+			ISN: 				uint32(seqNum),
 			SendBuf: SendBuf,
 		}
 
@@ -153,7 +158,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 		// Send a SYN-ACK back to client
 		flags := header.TCPFlagSyn | header.TCPFlagAck
-		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), uint32(tcpHdr.SeqNum+1))
+		tcpConn.ACK = tcpHdr.SeqNum + 1
+		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), tcpConn.ACK)
 		if err != nil {
 			fmt.Println("Error - Could not send SYN-ACK back")
 			return
