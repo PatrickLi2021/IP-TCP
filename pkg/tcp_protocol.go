@@ -54,7 +54,7 @@ type TCPStack struct {
 	IP               netip.Addr
 	NextSocketID     uint16 // unique ID for each sockets per node
 	IPStack          IPStack
-	socketIDToConn   map[uint32]*TCPConn
+	SocketIDToConn   map[uint32]*TCPConn
 	Channel          chan *TCPConn
 }
 
@@ -63,7 +63,7 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 	tcpStack.IP = localIP
 	tcpStack.ListenTable = make(map[uint16]*TCPListener)
 	tcpStack.ConnectionsTable = make(map[FourTuple]*TCPConn)
-	tcpStack.socketIDToConn = make(map[uint32]*TCPConn)
+	tcpStack.SocketIDToConn = make(map[uint32]*TCPConn)
 	tcpStack.NextSocketID = 0
 
 	// register tcp packet handler
@@ -161,7 +161,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		}
 
 		// Add mapping to socket ID to TCPConn table
-		tcpStack.socketIDToConn[uint32(tcpStack.NextSocketID)] = tcpConn
+		tcpStack.SocketIDToConn[uint32(tcpStack.NextSocketID)] = tcpConn
 
 		// add the new normal socket to tcp stack's connections table
 		tuple := FourTuple{

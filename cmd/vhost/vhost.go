@@ -120,6 +120,16 @@ func main() {
 				continue
 			}
 
+		} else if len(userInput) >= 5 && userInput[0:2] == "s " {
+			parts := strings.Split(userInput, " ")
+			socketID, _ := strconv.Atoi(parts[1])
+			bytesToSend := parts[2]
+			tcpStack.SCommand(uint32(socketID), bytesToSend)
+		} else if len(userInput) >= 5 && userInput[0:2] == "r " {
+			parts := strings.Split(userInput, " ")
+			socketID, _ := strconv.Atoi(parts[1])
+			numBytesToRead, _ := strconv.ParseUint(parts[2], 10, 32)
+			tcpStack.RCommand(uint32(socketID), uint32(numBytesToRead))
 		} else {
 			fmt.Println("Invalid command.")
 			continue
