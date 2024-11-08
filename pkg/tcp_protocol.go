@@ -54,6 +54,7 @@ type TCPStack struct {
 	IP               netip.Addr
 	NextSocketID     uint16 // unique ID for each sockets per node
 	IPStack          IPStack
+	socketIDToConn   map[uint32]*TCPConn
 	Channel          chan *TCPConn
 }
 
@@ -62,6 +63,7 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 	tcpStack.IP = localIP
 	tcpStack.ListenTable = make(map[uint16]*TCPListener)
 	tcpStack.ConnectionsTable = make(map[FourTuple]*TCPConn)
+	tcpStack.socketIDToConn = make(map[uint32]*TCPConn)
 	tcpStack.NextSocketID = 0
 
 	// register tcp packet handler
@@ -118,7 +120,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		}
 		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
 			// If we've received an ACK packet and we're in the ESTABLISHED state, send packet
-			// through TCPConn saying ACK has been received
+			// through TCPConn saying ACK has been received (this is for sending/receiving actual data)
 			tcpConn.AckReceived <- tcpHdr.AckNum
 		}
 		return
@@ -139,7 +141,13 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			LBW:     0,
 			Channel: make(chan bool), // TODO subject to change
 		}
+		RecvBuf := &TCPRecvBuffer{
+			Buffer: make([]byte, BUFFER_SIZE),
+			NXT:    0,
+			LBR:    0,
+		}
 		tcpConn := &TCPConn{
+			ID:         tcpStack.NextSocketID,
 			State:      "SYN_RECEIVED",
 			LocalPort:  tcpHdr.DstPort,
 			LocalAddr:  tcpStack.IP,
@@ -149,7 +157,11 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			SeqNum:     uint32(seqNum),
 			ISN:        uint32(seqNum),
 			SendBuf:    SendBuf,
+			RecvBuf:    RecvBuf,
 		}
+
+		// Add mapping to socket ID to TCPConn table
+		tcpStack.socketIDToConn[uint32(tcpStack.NextSocketID)] = tcpConn
 
 		// add the new normal socket to tcp stack's connections table
 		tuple := FourTuple{
@@ -170,7 +182,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			fmt.Println("Error - Could not send SYN-ACK back")
 			return
 		}
-		tcpConn.SeqNum += 1
 
 	} else {
 		// drop packet
