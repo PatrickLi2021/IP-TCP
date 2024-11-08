@@ -83,6 +83,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		fmt.Println("Could not sent SYN packet")
 		return nil, err
 	}
+	tcpConnection.SeqNum += 1
 	return tcpConnection, nil
 }
 

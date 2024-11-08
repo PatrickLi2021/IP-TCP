@@ -100,11 +100,10 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
 	if normal_exists {
 		if tcpHdr.Flags == (header.TCPFlagSyn|header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
-			// Send ACK back to server/client
+			// Send ACK back to server
 			flags := header.TCPFlagAck
-			tcpConn.SeqNum += 1
-			tcpConn.ACK = tcpHdr.SeqNum + 1
 			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpConn.ACK)
+
 			if err != nil {
 				fmt.Println("Could not sent ACK back")
 				return
@@ -112,6 +111,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			tcpConn.State = "ESTABLISHED"
 		}
 		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
+			// 'active' server receives ACK
 			// update socket state to established
 			tcpConn.State = "ESTABLISHED"
 			listenConn.Channel <- tcpConn
@@ -129,7 +129,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			return
 		}
 
-		// valid syn flag
+		// server receives syn in handshake from client
 		// Create new normal socket
 		seqNum := int(rand.Uint32())
 		SendBuf := &TCPSendBuffer{
@@ -165,12 +165,12 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 		// Send a SYN-ACK back to client
 		flags := header.TCPFlagSyn | header.TCPFlagAck
-		tcpConn.ACK = tcpHdr.SeqNum + 1
 		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), tcpConn.ACK)
 		if err != nil {
 			fmt.Println("Error - Could not send SYN-ACK back")
 			return
 		}
+		tcpConn.SeqNum += 1
 
 	} else {
 		// drop packet
