@@ -28,19 +28,21 @@ type TCPListener struct {
 }
 
 type TCPConn struct {
-	ID         uint16
-	State      string
-	LocalPort  uint16
-	LocalAddr  netip.Addr
-	RemotePort uint16
-	RemoteAddr netip.Addr
-	TCPStack   *TCPStack
-	SeqNum     uint32
-	SendBuf	   *TCPSendBuffer
-	RecvBuf	   *TCPRecvBuffer
-	SpaceOpen  chan bool
-	ISN 			 uint32
-	ACK 			 uint32
+	ID            uint16
+	State         string
+	LocalPort     uint16
+	LocalAddr     netip.Addr
+	RemotePort    uint16
+	RemoteAddr    netip.Addr
+	TCPStack      *TCPStack
+	SeqNum        uint32
+	SendBuf       *TCPSendBuffer
+	RecvBuf       *TCPRecvBuffer
+	SendSpaceOpen chan bool
+	RecvSpaceOpen chan bool
+	ISN           uint32
+	ACK           uint32
+	AckReceived   chan uint32
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
@@ -97,8 +99,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
 	if normal_exists {
-		if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
-			// Send ACK back to server
+		if tcpHdr.Flags == (header.TCPFlagSyn|header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
+			// Send ACK back to server/client
 			flags := header.TCPFlagAck
 			tcpConn.SeqNum += 1
 			tcpConn.ACK = tcpHdr.SeqNum + 1
@@ -114,6 +116,11 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			tcpConn.State = "ESTABLISHED"
 			listenConn.Channel <- tcpConn
 		}
+		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
+			// If we've received an ACK packet and we're in the ESTABLISHED state, send packet
+			// through TCPConn saying ACK has been received
+			tcpConn.AckReceived <- tcpHdr.AckNum
+		}
 		return
 	} else if listen_exists {
 		// create new connection
@@ -126,10 +133,10 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		// Create new normal socket
 		seqNum := int(rand.Uint32())
 		SendBuf := &TCPSendBuffer{
-			Buffer: make([]byte, BUFFER_SIZE),
-			UNA: 0,
-			NXT: 0,
-			LBW: 0,
+			Buffer:  make([]byte, BUFFER_SIZE),
+			UNA:     0,
+			NXT:     0,
+			LBW:     0,
 			Channel: make(chan bool), // TODO subject to change
 		}
 		tcpConn := &TCPConn{
@@ -140,8 +147,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			RemoteAddr: ipHdr.Src,
 			TCPStack:   tcpStack,
 			SeqNum:     uint32(seqNum),
-			ISN: 				uint32(seqNum),
-			SendBuf: SendBuf,
+			ISN:        uint32(seqNum),
+			SendBuf:    SendBuf,
 		}
 
 		// add the new normal socket to tcp stack's connections table

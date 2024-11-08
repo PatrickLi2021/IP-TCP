@@ -3,9 +3,9 @@ package iptcp_utils
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/google/netstack/tcpip/header"
 	"net/netip"
 	"strings"
-	"github.com/google/netstack/tcpip/header"
 )
 
 const (
@@ -13,7 +13,7 @@ const (
 	TcpPseudoHeaderLen   = 12
 	IpProtoTcp           = header.TCPProtocolNumber
 	MaxVirtualPacketSize = 1400
-	BUFFER_SIZE = 65535
+	BUFFER_SIZE          = 65535
 )
 
 // Build a TCPFields struct from the TCP byte array
@@ -142,10 +142,18 @@ func TCPFieldsToString(hdr *header.TCPFields) string {
 }
 
 func CalculateRemainingSendBufSpace(LBW uint32, UNA uint32) int {
-	if (LBW >= UNA) {
-		return int(BUFFER_SIZE - (LBW - UNA) - 1);
+	if LBW >= UNA {
+		return int(BUFFER_SIZE - (LBW - UNA) - 1)
 	} else {
 		// LBW < UNA
-		return int(BUFFER_SIZE - (UNA - LBW) - 2);
+		return int(BUFFER_SIZE - (UNA - LBW) - 2)
+	}
+}
+
+func CalculateRemainingRecvBufSpace(LBR uint32, NXT uint32) int {
+	if NXT >= LBR {
+		return int(NXT-LBR) + 1
+	} else {
+		return int(BUFFER_SIZE-NXT) + int(LBR)
 	}
 }
