@@ -13,28 +13,33 @@ func (stack *TCPStack) VListen(port uint16) (*TCPListener, error) {
 	// Create TCPListener struct
 	emptyAddr, _ := netip.ParseAddr("0.0.0.0")
 	tcpListener := &TCPListener{
-		ID:         stack.NextSocketID,
-		State:      "LISTEN",
-		LocalPort:  port,
-		LocalAddr:  emptyAddr,
-		RemotePort: 0,
-		RemoteAddr: emptyAddr,
-		Channel:    make(chan *TCPConn),
+		ID:          stack.NextSocketID,
+		State:       "LISTEN",
+		LocalPort:   port,
+		LocalAddr:   emptyAddr,
+		RemotePort:  0,
+		RemoteAddr:  emptyAddr,
+		ConnCreated: make(chan *TCPConn),
 	}
 
 	// Edit the stack's listen table
-	stack.ListenTable[port] = tcpListener
+	fourTuple := &FourTuple{
+		remotePort: 0,
+		remoteAddr: emptyAddr,
+		srcPort:    port,
+		srcAddr:    emptyAddr,
+	}
+	stack.SocketIDToConn[uint32(stack.NextSocketID)] = fourTuple
+	stack.ListenTable[fourTuple.srcPort] = tcpListener
 	stack.NextSocketID++
 	return tcpListener, nil
 }
 
 func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPConn, error) {
-	// Initiate a connection (created a "normal socket")
-
 	// Generate a random port number
 	min := uint16(20000)
 	max := uint16(65535 - 20000)
-	randomNum := min + uint16(rand.Intn(int(max)))
+	randomPort := min + uint16(rand.Intn(int(max)))
 
 	// Select random 32-bit integer for sequence number
 	seqNum := rand.Uint32()
@@ -53,42 +58,45 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		LBR:    0,
 		NXT:    0,
 	}
-	tcpConnection := &TCPConn{
-		ID:         stack.NextSocketID,
-		State:      "SYN_SENT",
-		LocalPort:  randomNum,
-		LocalAddr:  stack.IP,
-		RemotePort: remotePort,
-		RemoteAddr: remoteAddr,
-		TCPStack:   stack,
-		SeqNum:     seqNum,
-		ISN:        seqNum,
-		SendBuf:    SendBuf,
-		RecvBuf:    RecvBuf,
+	// Create new connection
+	tcpConn := &TCPConn{
+		ID:                stack.NextSocketID,
+		State:             "SYN_SENT",
+		LocalPort:         randomPort,
+		LocalAddr:         stack.IP,
+		RemotePort:        remotePort,
+		RemoteAddr:        remoteAddr,
+		TCPStack:          stack,
+		SeqNum:            seqNum,
+		ISN:               seqNum,
+		SendBuf:           SendBuf,
+		RecvBuf:           RecvBuf,
+		SendBufferHasData: make(chan bool),
+		RecvSpaceOpen:     make(chan bool),
+		SendSpaceOpen:     make(chan bool),
 	}
-
-	fourTuple := FourTuple{
+	fourTuple := &FourTuple{
 		remotePort: remotePort,
 		remoteAddr: remoteAddr,
-		srcPort:    randomNum,
+		srcPort:    randomPort,
 		srcAddr:    stack.IP,
 	}
-
+	stack.SocketIDToConn[uint32(stack.NextSocketID)] = fourTuple
 	stack.NextSocketID++
-	stack.ConnectionsTable[fourTuple] = tcpConnection
+	stack.ConnectionsTable[*fourTuple] = tcpConn
 
 	// Send SYN packet
-	err := tcpConnection.sendTCP([]byte{}, header.TCPFlagSyn, uint32(tcpConnection.SeqNum), 0)
+	err := tcpConn.sendTCP([]byte{}, header.TCPFlagSyn, uint32(tcpConn.SeqNum), 0)
 	if err != nil {
 		fmt.Println("Could not sent SYN packet")
 		return nil, err
 	}
-	tcpConnection.SeqNum += 1
-	return tcpConnection, nil
+	tcpConn.SeqNum += 1
+	return tcpConn, nil
 }
 
 func (tcpListener *TCPListener) VAccept() (*TCPConn, error) {
-	tcpConn := <-tcpListener.Channel
+	tcpConn := <-tcpListener.ConnCreated
 	return tcpConn, nil
 }
 
@@ -109,8 +117,7 @@ func (tcpConn *TCPConn) sendTCP(data []byte, flags uint32, seqNum uint32, ackNum
 	tcpHeaderBytes := make(header.TCP, iptcp_utils.TcpHeaderLen)
 	tcpHeaderBytes.Encode(&tcpHeader)
 
-	// Combine the TCP header + payload into one byte array, which
-	// becomes the payload of the IP packet
+	// Combine the TCP header + payload into one byte array, which becomes the payload of the IP packet
 	ipPacketPayload := make([]byte, 0, len(tcpHeaderBytes)+len(data))
 	ipPacketPayload = append(ipPacketPayload, tcpHeaderBytes...)
 	ipPacketPayload = append(ipPacketPayload, []byte(data)...)

@@ -164,6 +164,7 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	}
 	// Find longest prefix match
 	srcIP, destAddrPort := stack.findPrefixMatch(dest)
+
 	if destAddrPort == nil {
 		// no match found, drop packet
 		return nil
@@ -193,7 +194,6 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 		Dst:      dest,
 		Options:  []byte{},
 	}
-
 	headerBytes, err := header.Marshal()
 	if err != nil {
 		fmt.Println(err)
@@ -212,7 +212,6 @@ func (stack *IPStack) SendIP(originalSrc *netip.Addr, TTL int, dest netip.Addr, 
 	bytesToSend := make([]byte, 0, len(headerBytes)+len(data))
 	bytesToSend = append(bytesToSend, headerBytes...)
 	bytesToSend = append(bytesToSend, []byte(data)...)
-
 	bytesWritten, err := (stack.Interfaces[*srcIP].Conn).WriteToUDP(bytesToSend, destAddrPort)
 	if err != nil {
 		fmt.Println(err)
@@ -310,7 +309,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 
 	// packet payload
 	message := buffer[hdrSize:hdr.TotalLen]
-	// TODO: 
+	// TODO:
 	// TotalLen
 	// message = bytes.TrimRight(message, "\x00")
 

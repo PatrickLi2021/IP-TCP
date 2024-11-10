@@ -13,7 +13,7 @@ const (
 	TcpPseudoHeaderLen   = 12
 	IpProtoTcp           = header.TCPProtocolNumber
 	MaxVirtualPacketSize = 1400
-	BUFFER_SIZE          = 65535
+	BUFFER_SIZE          = 10
 )
 
 // Build a TCPFields struct from the TCP byte array
@@ -145,7 +145,6 @@ func CalculateRemainingSendBufSpace(LBW uint32, UNA uint32) int {
 	if LBW >= UNA {
 		return int(BUFFER_SIZE - (LBW - UNA) - 1)
 	} else {
-		// LBW < UNA
 		return int(BUFFER_SIZE - (UNA - LBW) - 2)
 	}
 }

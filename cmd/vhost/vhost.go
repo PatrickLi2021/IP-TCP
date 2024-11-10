@@ -26,10 +26,6 @@ func getOnlyKey(m map[netip.Addr]*protocol.Interface) netip.Addr {
 	return emptyAddr
 }
 
-func handleTCP() {
-
-}
-
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Println("Usage: ./vhost --config <lnx file>")
@@ -48,6 +44,7 @@ func main() {
 	ipStack.Initialize(*lnxConfig)
 
 	for _, iface := range ipStack.Interfaces {
+		fmt.Println("Listening on the interfaces")
 		go listen(ipStack, iface)
 	}
 

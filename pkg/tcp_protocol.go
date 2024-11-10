@@ -17,32 +17,33 @@ type FourTuple struct {
 }
 
 type TCPListener struct {
-	ID         uint16
-	State      string
-	LocalPort  uint16
-	LocalAddr  netip.Addr
-	RemotePort uint16
-	RemoteAddr netip.Addr
-	TCPStack   *TCPStack
-	Channel    chan *TCPConn
+	ID          uint16
+	State       string
+	LocalPort   uint16
+	LocalAddr   netip.Addr
+	RemotePort  uint16
+	RemoteAddr  netip.Addr
+	TCPStack    *TCPStack
+	ConnCreated chan *TCPConn
 }
 
 type TCPConn struct {
-	ID            uint16
-	State         string
-	LocalPort     uint16
-	LocalAddr     netip.Addr
-	RemotePort    uint16
-	RemoteAddr    netip.Addr
-	TCPStack      *TCPStack
-	SeqNum        uint32
-	SendBuf       *TCPSendBuffer
-	RecvBuf       *TCPRecvBuffer
-	SendSpaceOpen chan bool
-	RecvSpaceOpen chan bool
-	ISN           uint32
-	ACK           uint32
-	AckReceived   chan uint32
+	ID                uint16
+	State             string
+	LocalPort         uint16
+	LocalAddr         netip.Addr
+	RemotePort        uint16
+	RemoteAddr        netip.Addr
+	TCPStack          *TCPStack
+	SeqNum            uint32
+	SendBuf           *TCPSendBuffer
+	RecvBuf           *TCPRecvBuffer
+	SendSpaceOpen     chan bool
+	RecvSpaceOpen     chan bool
+	SendBufferHasData chan bool
+	ISN               uint32
+	ACK               uint32
+	AckReceived       chan uint32
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
@@ -54,7 +55,7 @@ type TCPStack struct {
 	IP               netip.Addr
 	NextSocketID     uint16 // unique ID for each sockets per node
 	IPStack          IPStack
-	SocketIDToConn   map[uint32]*TCPConn
+	SocketIDToConn   map[uint32]*FourTuple
 	Channel          chan *TCPConn
 }
 
@@ -63,7 +64,7 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 	tcpStack.IP = localIP
 	tcpStack.ListenTable = make(map[uint16]*TCPListener)
 	tcpStack.ConnectionsTable = make(map[FourTuple]*TCPConn)
-	tcpStack.SocketIDToConn = make(map[uint32]*TCPConn)
+	tcpStack.SocketIDToConn = make(map[uint32]*FourTuple)
 	tcpStack.NextSocketID = 0
 
 	// register tcp packet handler
@@ -98,8 +99,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	}
 
 	tcpConn, normal_exists := tcpStack.ConnectionsTable[fourTuple]
-
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
+
 	if normal_exists {
 		if tcpHdr.Flags == (header.TCPFlagSyn|header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
 			// Send ACK back to server
@@ -111,17 +112,37 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				return
 			}
 			tcpConn.State = "ESTABLISHED"
+			// Start new goroutine monitoring TCPConn's send buffer for new data to be sent
+			go tcpConn.SendSegment()
+			go tcpConn.WatchRecvBuf()
 		}
 		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
 			// 'active' server receives ACK
 			// update socket state to established
 			tcpConn.State = "ESTABLISHED"
-			listenConn.Channel <- tcpConn
+			listenConn.ConnCreated <- tcpConn
+			// Start new goroutine monitoring TCPConn's send buffer for new data to be sent
+			go tcpConn.SendSegment()
+			// Start new goroutine continuously checking TCPConn's receive buffer for space
+			go tcpConn.WatchRecvBuf()
 		}
 		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
 			// If we've received an ACK packet and we're in the ESTABLISHED state, send packet
 			// through TCPConn saying ACK has been received (this is for sending/receiving actual data)
 			tcpConn.AckReceived <- tcpHdr.AckNum
+
+			// Calculate remaining space in buffer
+			remainingSpace := BUFFER_SIZE - (int(tcpHdr.SeqNum) - int(tcpConn.RecvBuf.LBR))
+			if len(tcpPayload) > remainingSpace {
+				fmt.Println("Data received is larger than remaining space in receive buffer")
+			} else {
+				// Copy data into receive buffer
+				bufferPointer := int(tcpHdr.SeqNum) - int(tcpConn.RecvBuf.LBR)
+				copy(tcpConn.RecvBuf.Buffer[bufferPointer:bufferPointer+len(tcpPayload)], tcpPayload)
+				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+				// Send signal that bytes are now in receive buffer
+				tcpConn.RecvSpaceOpen <- true
+			}
 		}
 		return
 	} else if listen_exists {
@@ -131,7 +152,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			return
 		}
 
-		// server receives syn in handshake from client
+		// Server receives syn in handshake from client
 		// Create new normal socket
 		seqNum := int(rand.Uint32())
 		SendBuf := &TCPSendBuffer{
@@ -147,21 +168,21 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			LBR:    0,
 		}
 		tcpConn := &TCPConn{
-			ID:         tcpStack.NextSocketID,
-			State:      "SYN_RECEIVED",
-			LocalPort:  tcpHdr.DstPort,
-			LocalAddr:  tcpStack.IP,
-			RemotePort: tcpHdr.SrcPort,
-			RemoteAddr: ipHdr.Src,
-			TCPStack:   tcpStack,
-			SeqNum:     uint32(seqNum),
-			ISN:        uint32(seqNum),
-			SendBuf:    SendBuf,
-			RecvBuf:    RecvBuf,
+			ID:                tcpStack.NextSocketID,
+			State:             "SYN_RECEIVED",
+			LocalPort:         tcpHdr.DstPort,
+			LocalAddr:         tcpStack.IP,
+			RemotePort:        tcpHdr.SrcPort,
+			RemoteAddr:        ipHdr.Src,
+			TCPStack:          tcpStack,
+			SeqNum:            uint32(seqNum),
+			ISN:               uint32(seqNum),
+			SendBuf:           SendBuf,
+			RecvBuf:           RecvBuf,
+			SendSpaceOpen:     make(chan bool),
+			RecvSpaceOpen:     make(chan bool),
+			SendBufferHasData: make(chan bool),
 		}
-
-		// Add mapping to socket ID to TCPConn table
-		tcpStack.SocketIDToConn[uint32(tcpStack.NextSocketID)] = tcpConn
 
 		// add the new normal socket to tcp stack's connections table
 		tuple := FourTuple{
@@ -171,7 +192,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			srcAddr:    tcpConn.LocalAddr,
 		}
 		tcpStack.ConnectionsTable[tuple] = tcpConn
-
+		tcpStack.SocketIDToConn[uint32(tcpStack.NextSocketID)] = &tuple
 		// increment next socket id - used when listing out all sockets
 		tcpStack.NextSocketID++
 
