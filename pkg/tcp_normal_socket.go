@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"errors"
+	// "fmt"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
 
@@ -43,9 +44,14 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		// Read data based on buffer wrap-around conditions
 		if lbr <= nxt {
 			// Direct read when LBR is before or at NXT
-			n := copy(buf[bytesRead:], tcpConn.RecvBuf.Buffer[lbr:lbr+bytesToRead])
-			bytesRead += n
+			n := 0
+			if lbr+bytesToRead < nxt {
+				n = copy(buf[:bytesToRead], tcpConn.RecvBuf.Buffer[lbr:lbr+bytesToRead])
+			} else {
+				n = copy(buf[:nxt-lbr+1], tcpConn.RecvBuf.Buffer[lbr:nxt])
+			}
 			tcpConn.RecvBuf.LBR = (lbr + uint32(n)) % BUFFER_SIZE
+			bytesRead += n
 		} else {
 			// Wrapped buffer, read in two parts
 			// If the byte slice is empty
@@ -130,18 +136,21 @@ func (tcpConn *TCPConn) SendSegment() {
 		for tcpConn.SendBuf.LBW != tcpConn.SendBuf.NXT {
 			endIdx := tcpConn.SendBuf.LBW
 			if tcpConn.SendBuf.NXT < tcpConn.SendBuf.LBW {
-				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
+				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT
 				if bytesToSend > maxPayloadSize {
 					endIdx = tcpConn.SendBuf.NXT + maxPayloadSize + 1
 				}
-				tcpConn.sendTCP(tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK)
+				tcpConn.sendTCP(tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				tcpConn.SeqNum += bytesToSend
+				tcpConn.TotalBytesSent += bytesToSend
 				tcpConn.SendBuf.NXT = endIdx
 
 			} else {
 				nxt := tcpConn.SendBuf.NXT
 				if uint32(len(tcpConn.SendBuf.Buffer))-nxt > maxPayloadSize {
 					endIdx = nxt + maxPayloadSize + 1
-					tcpConn.sendTCP(tcpConn.SendBuf.Buffer[nxt:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK)
+					tcpConn.sendTCP(tcpConn.SendBuf.Buffer[nxt:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+					tcpConn.TotalBytesSent += (endIdx - nxt)
 					tcpConn.SendBuf.NXT = (tcpConn.SendBuf.NXT + uint32(maxPayloadSize)) % BUFFER_SIZE
 					continue
 				}
@@ -150,7 +159,8 @@ func (tcpConn *TCPConn) SendSegment() {
 				firstChunk := tcpConn.SendBuf.Buffer[nxt:]
 				secondChunk := tcpConn.SendBuf.Buffer[:remainingSpace]
 				bytesToSend := append(firstChunk, secondChunk...)
-				tcpConn.sendTCP(bytesToSend, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK)
+				tcpConn.sendTCP(bytesToSend, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				tcpConn.TotalBytesSent += uint32(len(bytesToSend))
 				tcpConn.SendBuf.NXT = remainingSpace
 			}
 		}

@@ -74,6 +74,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		SendBufferHasData: make(chan bool),
 		RecvSpaceOpen:     make(chan bool),
 		SendSpaceOpen:     make(chan bool),
+		CurWindow:         BUFFER_SIZE,
 	}
 	fourTuple := &FourTuple{
 		remotePort: remotePort,
@@ -86,7 +87,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	stack.ConnectionsTable[*fourTuple] = tcpConn
 
 	// Send SYN packet
-	err := tcpConn.sendTCP([]byte{}, header.TCPFlagSyn, uint32(tcpConn.SeqNum), 0)
+	err := tcpConn.sendTCP([]byte{}, header.TCPFlagSyn, uint32(tcpConn.SeqNum), 0, tcpConn.CurWindow)
 	if err != nil {
 		fmt.Println("Could not sent SYN packet")
 		return nil, err
@@ -100,7 +101,7 @@ func (tcpListener *TCPListener) VAccept() (*TCPConn, error) {
 	return tcpConn, nil
 }
 
-func (tcpConn *TCPConn) sendTCP(data []byte, flags uint32, seqNum uint32, ackNum uint32) error {
+func (tcpConn *TCPConn) sendTCP(data []byte, flags uint32, seqNum uint32, ackNum uint32, windowSize uint16) error {
 	tcpHeader := header.TCPFields{
 		SrcPort:       tcpConn.LocalPort,
 		DstPort:       tcpConn.RemotePort,
@@ -108,7 +109,7 @@ func (tcpConn *TCPConn) sendTCP(data []byte, flags uint32, seqNum uint32, ackNum
 		AckNum:        uint32(ackNum),
 		DataOffset:    20,
 		Flags:         uint8(flags),
-		WindowSize:    65535,
+		WindowSize:    windowSize,
 		Checksum:      0,
 		UrgentPointer: 0,
 	}

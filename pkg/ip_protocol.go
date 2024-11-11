@@ -281,7 +281,6 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		// if down can't receive
 		return nil
 	}
-
 	if err != nil {
 		fmt.Println(err)
 		return err
@@ -291,9 +290,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 		fmt.Println("Error parsing header", err)
 		return nil
 	}
-
 	hdrSize := hdr.Len
-
 	// validate checksum
 	hdrBytes := buffer[:hdrSize]
 	checksumFromHeader := uint16(hdr.Checksum)
@@ -306,13 +303,11 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	if hdr.TTL <= 0 {
 		return nil
 	}
-
 	// packet payload
 	message := buffer[hdrSize:hdr.TotalLen]
 	// TODO:
 	// TotalLen
 	// message = bytes.TrimRight(message, "\x00")
-
 	// check packet's dest ip
 	correctDest := hdr.Dst == iface.IP
 	for interIP := range stack.Interfaces {

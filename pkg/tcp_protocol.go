@@ -44,6 +44,8 @@ type TCPConn struct {
 	ISN               uint32
 	ACK               uint32
 	AckReceived       chan uint32
+	CurWindow         uint16
+	TotalBytesSent    uint32
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
@@ -107,7 +109,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		if tcpHdr.Flags == (header.TCPFlagSyn|header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
 			flags := header.TCPFlagAck
 			tcpConn.ACK = tcpHdr.SeqNum + 1
-			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpHdr.SeqNum+1)
+			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpHdr.SeqNum+1, tcpConn.CurWindow)
 
 			if err != nil {
 				fmt.Println("Could not sent ACK back")
@@ -119,6 +121,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 			// Received an ACK, so set state to ESTABLISHED
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
+			fmt.Println("3")
 			tcpConn.State = "ESTABLISHED"
 			listenConn.ConnCreated <- tcpConn
 			go tcpConn.SendSegment()
@@ -127,7 +130,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			// Finished handshake, received actual data
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
 			// tcpConn.AckReceived <- tcpHdr.AckNum
-
 			// Calculate remaining space in buffer
 			remainingSpace := BUFFER_SIZE - (int(tcpConn.RecvBuf.NXT) - int(tcpConn.RecvBuf.LBR))
 			if len(tcpPayload) > remainingSpace {
@@ -140,10 +142,11 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 				// Send an ACK back
 				if len(tcpPayload) > 0 {
-					tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK+uint32(len(tcpPayload)))
+					tcpConn.CurWindow -= uint16(len(tcpPayload))
+					tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpHdr.SeqNum+uint32(len(tcpPayload)), tcpConn.CurWindow)
 				}
 				// Send signal that bytes are now in receive buffer
-				tcpConn.RecvSpaceOpen <- true
+				// tcpConn.RecvSpaceOpen <- true
 			}
 		}
 		return
@@ -185,6 +188,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			SendSpaceOpen:     make(chan bool),
 			RecvSpaceOpen:     make(chan bool),
 			SendBufferHasData: make(chan bool),
+			CurWindow:         BUFFER_SIZE,
 		}
 
 		// Add the new normal socket to tcp stack's connections table
@@ -203,7 +207,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		flags := header.TCPFlagSyn | header.TCPFlagAck
 		tcpConn.SeqNum = uint32(seqNum) + 1
 		tcpConn.ACK = tcpHdr.SeqNum + 1
-		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), tcpHdr.SeqNum+1)
+		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), tcpHdr.SeqNum+1, tcpConn.CurWindow)
 		if err != nil {
 			fmt.Println("Error - Could not send SYN-ACK back")
 			return
