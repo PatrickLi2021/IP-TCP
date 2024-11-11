@@ -143,7 +143,7 @@ func TCPFieldsToString(hdr *header.TCPFields) string {
 
 func CalculateRemainingSendBufSpace(LBW uint32, UNA uint32) int {
 	if LBW >= UNA {
-		return int(BUFFER_SIZE - (LBW - UNA) - 1)
+		return int(BUFFER_SIZE - (LBW - UNA))
 	} else {
 		return int(BUFFER_SIZE - (UNA - LBW) - 2)
 	}

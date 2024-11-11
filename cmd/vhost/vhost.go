@@ -44,7 +44,6 @@ func main() {
 	ipStack.Initialize(*lnxConfig)
 
 	for _, iface := range ipStack.Interfaces {
-		fmt.Println("Listening on the interfaces")
 		go listen(ipStack, iface)
 	}
 

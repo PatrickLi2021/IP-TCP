@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
@@ -9,13 +10,12 @@ import (
 )
 
 const (
-	maxPayloadSize = 4 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 10 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	// If LBR == NXT, there is no data to read
 	// We have the other 2 cases
-
 	bytesRead := 0
 
 	// Loop until we read some data
@@ -48,10 +48,19 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 			tcpConn.RecvBuf.LBR = (lbr + uint32(n)) % BUFFER_SIZE
 		} else {
 			// Wrapped buffer, read in two parts
+			// If the byte slice is empty
+			if bytes.Equal(tcpConn.RecvBuf.Buffer[lbr:], make([]byte, BUFFER_SIZE-lbr)) {
+				<-tcpConn.RecvSpaceOpen // Block until data is available
+				continue
+			}
 			firstChunk := copy(buf[bytesRead:], tcpConn.RecvBuf.Buffer[lbr:])
 			bytesRead += firstChunk
 
 			if uint32(firstChunk) < bytesToRead {
+				if bytes.Equal(tcpConn.RecvBuf.Buffer[:bytesToRead-uint32(firstChunk)], make([]byte, BUFFER_SIZE-bytesToRead-uint32(firstChunk))) {
+					<-tcpConn.RecvSpaceOpen // Block until data is available
+					continue
+				}
 				secondChunk := copy(buf[bytesRead:], tcpConn.RecvBuf.Buffer[:bytesToRead-uint32(firstChunk)])
 				bytesRead += secondChunk
 				tcpConn.RecvBuf.LBR = uint32(secondChunk)
@@ -60,7 +69,6 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 			}
 		}
 	}
-
 	return bytesRead, nil
 }
 
@@ -85,11 +93,11 @@ func (tcpConn *TCPConn) ListenForACK() error {
 
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
+	originalDataToSend := data
 	bytesToWrite := len(data)
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)
-
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
@@ -98,33 +106,29 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 
 		// Determine how many bytes to actually write into the send buffer
 		toWrite := min(bytesToWrite, remainingSpace)
-
 		// Write data into the send buffer
 		for i := 0; i < toWrite; i++ {
 			tcpConn.SendBuf.Buffer[(int(tcpConn.SendBuf.LBW)+i)%BUFFER_SIZE] = data[i]
 		}
-
 		// Update the LBW pointer after writing data
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + uint32(toWrite)) % BUFFER_SIZE
-
+		// Send signal that there is now new data in send buffer
+		tcpConn.SendBufferHasData <- true
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
 	}
-	// Signal that there is new data in the send buffer
-	tcpConn.SendBufferHasData <- true
-	return len(data), nil
+	return len(originalDataToSend), nil
 }
 
 // Monitors TCPConn's send buffer to send new data as it becomes available
-func (tcpConn *TCPConn) SendSegment() error {
+func (tcpConn *TCPConn) SendSegment() {
 	for {
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
 		// Process the send buffer
 		for tcpConn.SendBuf.LBW != tcpConn.SendBuf.NXT {
-			endIdx := tcpConn.SendBuf.LBW + 1
-
+			endIdx := tcpConn.SendBuf.LBW
 			if tcpConn.SendBuf.NXT < tcpConn.SendBuf.LBW {
 				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 				if bytesToSend > maxPayloadSize {
@@ -158,7 +162,7 @@ func (tcpConn *TCPConn) WatchRecvBuf() error {
 		nxt := tcpConn.RecvBuf.NXT
 		lbr := tcpConn.RecvBuf.LBR
 		// Indicates that there's space in receive buffer
-		if nxt != lbr {
+		if !tcpConn.NoDataAvailable(lbr, nxt) {
 			tcpConn.RecvSpaceOpen <- true
 		}
 	}
@@ -166,3 +170,13 @@ func (tcpConn *TCPConn) WatchRecvBuf() error {
 
 // VWrite writes into your send buffer and that wakes up some thread that's watching your send buffer and then you send the packet
 // On the other end, you have a thread that will wake up when you receive a segment. You load it into your receive buffer
+func (tcpConn *TCPConn) NoDataAvailable(LBR uint32, NXT uint32) bool {
+	if LBR == NXT {
+		return true
+	} else if LBR >= NXT {
+		// If the only bytes left to read are null, then that equates to having no data
+		return bytes.Equal(tcpConn.RecvBuf.Buffer[NXT:LBR], make([]byte, BUFFER_SIZE-NXT-LBR))
+	} else {
+		return bytes.Equal(tcpConn.RecvBuf.Buffer[LBR:NXT], make([]byte, BUFFER_SIZE-LBR-NXT))
+	}
+}

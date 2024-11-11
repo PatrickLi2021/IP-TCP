@@ -102,57 +102,60 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
 
 	if normal_exists {
+
+		// Received a SYN-ACK, and send an ACK back
 		if tcpHdr.Flags == (header.TCPFlagSyn|header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
-			// Send ACK back to server
 			flags := header.TCPFlagAck
-			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpConn.ACK)
+			tcpConn.ACK = tcpHdr.SeqNum + 1
+			err := tcpConn.sendTCP([]byte{}, uint32(flags), tcpHdr.AckNum, tcpHdr.SeqNum+1)
 
 			if err != nil {
 				fmt.Println("Could not sent ACK back")
 				return
 			}
 			tcpConn.State = "ESTABLISHED"
-			// Start new goroutine monitoring TCPConn's send buffer for new data to be sent
 			go tcpConn.SendSegment()
 			go tcpConn.WatchRecvBuf()
-		}
-		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
-			// 'active' server receives ACK
-			// update socket state to established
+
+			// Received an ACK, so set state to ESTABLISHED
+		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
 			tcpConn.State = "ESTABLISHED"
 			listenConn.ConnCreated <- tcpConn
-			// Start new goroutine monitoring TCPConn's send buffer for new data to be sent
 			go tcpConn.SendSegment()
-			// Start new goroutine continuously checking TCPConn's receive buffer for space
 			go tcpConn.WatchRecvBuf()
-		}
-		if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
-			// If we've received an ACK packet and we're in the ESTABLISHED state, send packet
-			// through TCPConn saying ACK has been received (this is for sending/receiving actual data)
-			tcpConn.AckReceived <- tcpHdr.AckNum
+
+			// Finished handshake, received actual data
+		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
+			// tcpConn.AckReceived <- tcpHdr.AckNum
 
 			// Calculate remaining space in buffer
-			remainingSpace := BUFFER_SIZE - (int(tcpHdr.SeqNum) - int(tcpConn.RecvBuf.LBR))
+			remainingSpace := BUFFER_SIZE - (int(tcpConn.RecvBuf.NXT) - int(tcpConn.RecvBuf.LBR))
 			if len(tcpPayload) > remainingSpace {
 				fmt.Println("Data received is larger than remaining space in receive buffer")
 			} else {
 				// Copy data into receive buffer
-				bufferPointer := int(tcpHdr.SeqNum) - int(tcpConn.RecvBuf.LBR)
+				bufferPointer := int(tcpConn.RecvBuf.NXT) - int(tcpConn.RecvBuf.LBR)
 				copy(tcpConn.RecvBuf.Buffer[bufferPointer:bufferPointer+len(tcpPayload)], tcpPayload)
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+
+				// Send an ACK back
+				if len(tcpPayload) > 0 {
+					tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK+uint32(len(tcpPayload)))
+				}
 				// Send signal that bytes are now in receive buffer
 				tcpConn.RecvSpaceOpen <- true
 			}
 		}
 		return
+
 	} else if listen_exists {
-		// create new connection
 		if tcpHdr.Flags != header.TCPFlagSyn {
 			// drop packet because only syn flag should be set and other flags are set
 			return
 		}
 
-		// Server receives syn in handshake from client
+		// Receive SYN in handshake from client
+
 		// Create new normal socket
 		seqNum := int(rand.Uint32())
 		SendBuf := &TCPSendBuffer{
@@ -184,7 +187,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			SendBufferHasData: make(chan bool),
 		}
 
-		// add the new normal socket to tcp stack's connections table
+		// Add the new normal socket to tcp stack's connections table
 		tuple := FourTuple{
 			remotePort: tcpConn.RemotePort,
 			remoteAddr: tcpConn.RemoteAddr,
@@ -198,12 +201,13 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 		// Send a SYN-ACK back to client
 		flags := header.TCPFlagSyn | header.TCPFlagAck
-		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), tcpConn.ACK)
+		tcpConn.SeqNum = uint32(seqNum) + 1
+		tcpConn.ACK = tcpHdr.SeqNum + 1
+		err := tcpConn.sendTCP([]byte{}, uint32(flags), uint32(seqNum), tcpHdr.SeqNum+1)
 		if err != nil {
 			fmt.Println("Error - Could not send SYN-ACK back")
 			return
 		}
-
 	} else {
 		// drop packet
 		return

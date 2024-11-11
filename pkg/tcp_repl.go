@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"fmt"
-	"github.com/google/netstack/tcpip/header"
 	"net/netip"
 	"strconv"
 )
@@ -61,9 +60,8 @@ func (tcpStack *TCPStack) SCommand(socketID uint32, bytes string) {
 		return
 	}
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
-	// bytesSent, _ := tcpConn.VWrite([]byte(bytes))
-	tcpConn.sendTCP([]byte("hello"), header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK)
-	fmt.Println("Sent " + strconv.Itoa(6) + " bytes")
+	bytesSent, _ := tcpConn.VWrite([]byte(bytes))
+	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 }
 
 func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
@@ -71,5 +69,5 @@ func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
 	appBuffer := make([]byte, BUFFER_SIZE)
 	bytesRead, _ := tcpConn.VRead(appBuffer, numBytes)
-	fmt.Println("Read " + strconv.Itoa(bytesRead) + "bytes: " + string(appBuffer[:numBytes]))
+	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer[:numBytes]))
 }
