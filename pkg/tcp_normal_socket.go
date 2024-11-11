@@ -143,7 +143,7 @@ func (tcpConn *TCPConn) SendSegment() {
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
 		// Process the send buffer
-		for tcpConn.SendBuf.LBW != tcpConn.SendBuf.NXT {
+		for tcpConn.SendBuf.LBW >= tcpConn.SendBuf.NXT {
 			fmt.Println("NXT = ")
 			fmt.Println(tcpConn.SendBuf.NXT)
 
@@ -179,6 +179,7 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.SendBuf.NXT = remainingSpace
 			}
 		}
+		tcpConn.SendBuf.NXT = tcpConn.SendBuf.NXT % BUFFER_SIZE
 	}
 }
 
