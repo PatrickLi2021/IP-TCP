@@ -49,7 +49,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		Buffer:  make([]byte, BUFFER_SIZE),
 		UNA:     0,
 		NXT:     0,
-		LBW:     0,
+		LBW:     -1,
 		Channel: make(chan bool), // TODO subject to change
 	}
 

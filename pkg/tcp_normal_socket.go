@@ -3,6 +3,8 @@ package protocol
 import (
 	"bytes"
 	"errors"
+	"fmt"
+
 	// "fmt"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
@@ -83,9 +85,9 @@ func (tcpConn *TCPConn) ListenForACK() error {
 		select {
 		case ackNumber := <-tcpConn.AckReceived:
 			// Retrieve ACK number from packet
-			if ackNumber > tcpConn.SendBuf.UNA {
+			if int32(ackNumber) > tcpConn.SendBuf.UNA {
 				// Move the UNA pointer and free up space in the send buffer
-				tcpConn.SendBuf.UNA = ackNumber
+				tcpConn.SendBuf.UNA = int32(ackNumber)
 				// Send signal through channel indicating that space has freed up
 				tcpConn.SendSpaceOpen <- true
 			}
@@ -103,27 +105,35 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	bytesToWrite := len(data)
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
+		fmt.Println(tcpConn.SendBuf.LBW)
+		fmt.Println(tcpConn.SendBuf.UNA)
 		remainingSpace := tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
+			fmt.Println("Blocking in VWrite until more send buffer space opens up")
 			<-tcpConn.SendSpaceOpen
 			remainingSpace = tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)
 		}
 
 		// Determine how many bytes to actually write into the send buffer
+		fmt.Println(bytesToWrite)
 		toWrite := min(bytesToWrite, remainingSpace)
+		fmt.Printf("toWrite %v", toWrite)
 		// Write data into the send buffer
 		for i := 0; i < toWrite; i++ {
-			tcpConn.SendBuf.Buffer[(int(tcpConn.SendBuf.LBW)+i)%BUFFER_SIZE] = data[i]
+			tcpConn.SendBuf.Buffer[(int(tcpConn.SendBuf.LBW)+1+i)%BUFFER_SIZE] = data[i]
 		}
 		// Update the LBW pointer after writing data
-		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + uint32(toWrite)) % BUFFER_SIZE
+		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite)) % BUFFER_SIZE
 		// Send signal that there is now new data in send buffer
 		tcpConn.SendBufferHasData <- true
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
 	}
+	fmt.Println("HERE IS THE SEND BUFFER")
+	fmt.Println(tcpConn.SendBuf.Buffer)
+	fmt.Printf("LBW: %v, UNA: %v, NXT: %v ", tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA, tcpConn.SendBuf.NXT)
 	return len(originalDataToSend), nil
 }
 
@@ -134,28 +144,33 @@ func (tcpConn *TCPConn) SendSegment() {
 		<-tcpConn.SendBufferHasData
 		// Process the send buffer
 		for tcpConn.SendBuf.LBW != tcpConn.SendBuf.NXT {
-			endIdx := tcpConn.SendBuf.LBW
+			fmt.Println("NXT = ")
+			fmt.Println(tcpConn.SendBuf.NXT)
+
+			fmt.Println("LBW = ")
+			fmt.Println(tcpConn.SendBuf.LBW)
+			endIdx := tcpConn.SendBuf.LBW + 1
 			if tcpConn.SendBuf.NXT < tcpConn.SendBuf.LBW {
-				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT
+				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 				if bytesToSend > maxPayloadSize {
 					endIdx = tcpConn.SendBuf.NXT + maxPayloadSize + 1
 				}
 				tcpConn.sendTCP(tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-				tcpConn.SeqNum += bytesToSend
-				tcpConn.TotalBytesSent += bytesToSend
+				tcpConn.SeqNum += uint32(bytesToSend)
+				tcpConn.TotalBytesSent += uint32(bytesToSend)
 				tcpConn.SendBuf.NXT = endIdx
 
 			} else {
 				nxt := tcpConn.SendBuf.NXT
-				if uint32(len(tcpConn.SendBuf.Buffer))-nxt > maxPayloadSize {
+				if int32(len(tcpConn.SendBuf.Buffer))-nxt > maxPayloadSize {
 					endIdx = nxt + maxPayloadSize + 1
 					tcpConn.sendTCP(tcpConn.SendBuf.Buffer[nxt:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-					tcpConn.TotalBytesSent += (endIdx - nxt)
-					tcpConn.SendBuf.NXT = (tcpConn.SendBuf.NXT + uint32(maxPayloadSize)) % BUFFER_SIZE
+					tcpConn.TotalBytesSent += uint32(endIdx - nxt)
+					tcpConn.SendBuf.NXT = (tcpConn.SendBuf.NXT + int32(maxPayloadSize)) % BUFFER_SIZE
 					continue
 				}
 
-				remainingSpace := maxPayloadSize - (uint32(len(tcpConn.SendBuf.Buffer)) - nxt)
+				remainingSpace := maxPayloadSize - (int32(len(tcpConn.SendBuf.Buffer)) - nxt)
 				firstChunk := tcpConn.SendBuf.Buffer[nxt:]
 				secondChunk := tcpConn.SendBuf.Buffer[:remainingSpace]
 				bytesToSend := append(firstChunk, secondChunk...)

@@ -141,9 +141,11 @@ func TCPFieldsToString(hdr *header.TCPFields) string {
 		hdr.SrcPort, hdr.DstPort, hdr.SeqNum, hdr.AckNum, hdr.DataOffset, TCPFlagsAsString(hdr.Flags), hdr.WindowSize, hdr.Checksum, hdr.UrgentPointer)
 }
 
-func CalculateRemainingSendBufSpace(LBW uint32, UNA uint32) int {
-	if LBW >= UNA {
-		return int(BUFFER_SIZE - (LBW - UNA))
+func CalculateRemainingSendBufSpace(LBW int32, UNA int32) int {
+	if LBW < 0 {
+		return BUFFER_SIZE
+	} else if LBW >= int32(UNA) {
+		return int(BUFFER_SIZE - (LBW - UNA) - 1)
 	} else {
 		return int(BUFFER_SIZE - (UNA - LBW) - 2)
 	}

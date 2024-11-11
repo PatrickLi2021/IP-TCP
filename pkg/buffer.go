@@ -4,10 +4,10 @@ const BUFFER_SIZE = 10
 
 type TCPSendBuffer struct {
 	Buffer  []byte
-	UNA     uint32 // Represents oldest un-ACKed segment (updated by TCP stack)
-	NXT     uint32 // Represents data in the buffer that has been sent (updated by TCP stack)
-	LBW     uint32 // Represents data written into the buffer via VWrite() (updated by app)
-	Rec_win uint32
+	UNA     int32 // Represents oldest un-ACKed segment (updated by TCP stack)
+	NXT     int32 // Represents data in the buffer that has been sent (updated by TCP stack)
+	LBW     int32 // Represents data written into the buffer via VWrite() (updated by app)
+	Rec_win int32
 	Channel chan bool
 }
 

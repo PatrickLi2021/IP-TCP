@@ -139,6 +139,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				bufferPointer := int(tcpConn.RecvBuf.NXT) - int(tcpConn.RecvBuf.LBR)
 				copy(tcpConn.RecvBuf.Buffer[bufferPointer:bufferPointer+len(tcpPayload)], tcpPayload)
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+				fmt.Println("HERE IS THE RECEIVE BUFFER")
+				fmt.Println(tcpConn.RecvBuf.Buffer)
 
 				// Send an ACK back
 				if len(tcpPayload) > 0 {
@@ -165,7 +167,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			Buffer:  make([]byte, BUFFER_SIZE),
 			UNA:     0,
 			NXT:     0,
-			LBW:     0,
+			LBW:     -1,
 			Channel: make(chan bool), // TODO subject to change
 		}
 		RecvBuf := &TCPRecvBuffer{
