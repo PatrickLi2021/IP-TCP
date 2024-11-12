@@ -3,7 +3,6 @@ package protocol
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
 
@@ -18,8 +17,6 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	// If LBR == NXT, there is no data to read
 	// We have the other 2 cases
 	bytesRead := 0
-	fmt.Println("In VRead, here is the receive buffer")
-	fmt.Println(tcpConn.RecvBuf.Buffer)
 	// Loop until we read some data
 	for bytesRead == 0 {
 		// If the connection is closed, return EOF if no data has been read
@@ -31,23 +28,15 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		}
 		// Wait if there's no data available in the receive buffer
 		if (int32(tcpConn.RecvBuf.NXT)-tcpConn.RecvBuf.LBR) <= 1 && tcpConn.State != "CLOSED" {
-			fmt.Println("IN HERE HALAND")
 			<-tcpConn.RecvSpaceOpen // Block until data is available
 			continue
 		}
 
 		// Calculate how much data we can read
 		bytesAvailable := uint32(tcp_utils.CalculateRemainingRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT))
-		fmt.Println("bytes Available")
-		fmt.Println(bytesAvailable)
 		bytesToRead := min(bytesAvailable, maxBytes)
-		fmt.Println("bytes to read")
-		fmt.Println(bytesToRead)
 
 		lbr := tcpConn.RecvBuf.LBR
-		nxt := tcpConn.RecvBuf.NXT
-		fmt.Println(lbr)
-		fmt.Println(nxt)
 
 		for i := 0; i < int(bytesToRead); i++ {
 			lbr += 1
@@ -85,8 +74,6 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)
-		fmt.Println("remaining space in send buf = ")
-		fmt.Println(remainingSpace)
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen

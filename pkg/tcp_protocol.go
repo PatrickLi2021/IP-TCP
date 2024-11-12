@@ -140,8 +140,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 				}
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-				fmt.Println("HERE IS THE RECEIVE NXT IN TCPHANDLER")
-				fmt.Println(tcpConn.RecvBuf.NXT)
 
 				// Send an ACK back
 				if len(tcpPayload) > 0 {
@@ -155,7 +153,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		
 			// receiving ack from sent data
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" && len(tcpPayload) == 0{
-			fmt.Println("RECEIVED ACK")
 			tcpStack.HandleACK(packet, tcpHdr, tcpConn)
 
 		}
@@ -231,16 +228,10 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn) {
 	ACK := (header.AckNum - tcpConn.ISN)
 
-	fmt.Println("In handle ack")
-	fmt.Println("nxt = ")
-	fmt.Println(tcpConn.SendBuf.NXT)
-
 	if (tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT + 1) {
 		// valid ack number, RFC 3.4
 		tcpConn.ACK = header.AckNum
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		fmt.Println("New una = ")
-		fmt.Println(tcpConn.SendBuf.UNA)
 
 	} else {
 		// invalid ack number
