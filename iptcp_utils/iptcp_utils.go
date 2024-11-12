@@ -3,9 +3,10 @@ package iptcp_utils
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/google/netstack/tcpip/header"
 	"net/netip"
 	"strings"
+
+	"github.com/google/netstack/tcpip/header"
 )
 
 const (
@@ -147,7 +148,7 @@ func CalculateRemainingSendBufSpace(LBW int32, UNA int32) int {
 	} else if LBW >= int32(UNA) {
 		return int(BUFFER_SIZE - (LBW - UNA) - 1)
 	} else {
-		return int(BUFFER_SIZE - (UNA - LBW) - 2)
+		return int(UNA - LBW - 1)
 	}
 }
 
