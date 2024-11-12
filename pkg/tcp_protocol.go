@@ -156,7 +156,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			// receiving ack from sent data
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" && len(tcpPayload) == 0{
 			fmt.Println("RECEIVED ACK")
-			// tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+			tcpStack.HandleACK(packet, tcpHdr, tcpConn)
 
 		}
 		return
