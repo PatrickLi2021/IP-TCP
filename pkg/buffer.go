@@ -13,7 +13,7 @@ type TCPSendBuf struct {
 
 type TCPRecvBuf struct {
 	Buffer []byte
-	LBR    uint32 // Represents the last byte read (updated by app)
+	LBR    int32  // Represents the last byte read (updated by app)
 	NXT    uint32 // Represents how much data we've received (next byte we expect to receive)
 	// NXT is updated by your TCP stack (internal packet events)
 }

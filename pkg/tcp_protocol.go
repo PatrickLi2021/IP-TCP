@@ -137,7 +137,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				// Copy data into receive buffer
 				startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
 				for i := 0; i < len(tcpPayload); i++ {
-					tcpConn.RecvBuf.Buffer[(startIdx + i) % BUFFER_SIZE] = tcpPayload[i]
+					tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 				}
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 				fmt.Println("HERE IS THE RECEIVE NXT IN TCPHANDLER")
@@ -174,7 +174,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		RecvBuf := &TCPRecvBuf{
 			Buffer: make([]byte, BUFFER_SIZE),
 			NXT:    0,
-			LBR:    0,
+			LBR:    -1,
 		}
 		tcpConn := &TCPConn{
 			ID:                tcpStack.NextSocketID,

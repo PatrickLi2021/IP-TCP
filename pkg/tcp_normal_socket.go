@@ -30,7 +30,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 			return 0, io.EOF
 		}
 		// Wait if there's no data available in the receive buffer
-		if (tcpConn.RecvBuf.NXT - tcpConn.RecvBuf.LBR) <= 1 && tcpConn.State != "CLOSED" {
+		if (int32(tcpConn.RecvBuf.NXT)-tcpConn.RecvBuf.LBR) <= 1 && tcpConn.State != "CLOSED" {
 			fmt.Println("IN HERE HALAND")
 			<-tcpConn.RecvSpaceOpen // Block until data is available
 			continue
@@ -51,10 +51,10 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 
 		for i := 0; i < int(bytesToRead); i++ {
 			lbr += 1
-			buf[i] = tcpConn.RecvBuf.Buffer[lbr % BUFFER_SIZE]
+			buf[i] = tcpConn.RecvBuf.Buffer[lbr%BUFFER_SIZE]
 		}
 		tcpConn.RecvBuf.LBR = lbr
-		bytesRead += int(bytesToRead) 
+		bytesRead += int(bytesToRead)
 	}
 	return bytesRead, nil
 }
@@ -98,7 +98,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 			tcpConn.SendBuf.Buffer[(int(tcpConn.SendBuf.LBW)+1+i)%BUFFER_SIZE] = data[i]
 		}
 		// Update the LBW pointer after writing data
-		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite)) % BUFFER_SIZE
+		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
 		tcpConn.SendBufferHasData <- true
 		// Adjust the remaining data and update data slice
@@ -131,7 +131,7 @@ func (tcpConn *TCPConn) SendSegment() {
 					endIdx = nxt + maxPayloadSize + 1
 					tcpConn.sendTCP(tcpConn.SendBuf.Buffer[nxt:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 					tcpConn.TotalBytesSent += uint32(endIdx - nxt)
-					tcpConn.SendBuf.NXT = (tcpConn.SendBuf.NXT + int32(maxPayloadSize)) % BUFFER_SIZE
+					tcpConn.SendBuf.NXT += int32(maxPayloadSize)
 					continue
 				}
 
@@ -144,7 +144,6 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.SendBuf.NXT = remainingSpace
 			}
 		}
-		tcpConn.SendBuf.NXT = tcpConn.SendBuf.NXT % BUFFER_SIZE
 	}
 }
 
@@ -153,7 +152,7 @@ func (tcpConn *TCPConn) WatchRecvBuf() error {
 		nxt := tcpConn.RecvBuf.NXT
 		lbr := tcpConn.RecvBuf.LBR
 		// Indicates that there's space in receive buffer
-		if !tcpConn.NoDataAvailable(lbr, nxt) {
+		if int32(nxt)-lbr > 1 {
 			tcpConn.RecvSpaceOpen <- true
 		}
 	}

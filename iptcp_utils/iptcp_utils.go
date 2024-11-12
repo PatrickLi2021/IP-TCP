@@ -152,11 +152,11 @@ func CalculateRemainingSendBufSpace(LBW int32, UNA int32) int {
 	}
 }
 
-func CalculateRemainingRecvBufSpace(LBR uint32, NXT uint32) uint32 {
-	if NXT >= LBR {
-		return BUFFER_SIZE - (NXT - LBR - 1)
+func CalculateRemainingRecvBufSpace(LBR int32, NXT uint32) int32 {
+	if int32(NXT) >= LBR {
+		return int32(BUFFER_SIZE) - (int32(NXT) - LBR - 1)
 	} else {
-		return LBR - NXT + 1
+		return LBR - int32(NXT) + 1
 	}
 	// Currently we are not taking into account the case where NXT == LBR (we don't think this can happen)
 }
