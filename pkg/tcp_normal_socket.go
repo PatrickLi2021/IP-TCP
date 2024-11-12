@@ -150,9 +150,9 @@ func (tcpConn *TCPConn) SendSegment() {
 			// fmt.Println("LBW = ")
 			// fmt.Println(tcpConn.SendBuf.LBW)
 			endIdx := tcpConn.SendBuf.LBW + 1
-			// fmt.Println("ENDINDX")
-			// fmt.Println(endIdx)
-			if tcpConn.SendBuf.NXT < tcpConn.SendBuf.LBW {
+			fmt.Println("ENDINDX")
+			fmt.Println(endIdx)
+			if tcpConn.SendBuf.NXT <= tcpConn.SendBuf.LBW {
 				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 				if bytesToSend > maxPayloadSize {
 					endIdx = tcpConn.SendBuf.NXT + maxPayloadSize
