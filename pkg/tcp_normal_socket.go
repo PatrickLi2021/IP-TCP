@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
 
@@ -33,7 +34,9 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		}
 
 		// Calculate how much data we can read
-		bytesAvailable := uint32(tcp_utils.CalculateRemainingRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT))
+		bytesAvailable := uint32(tcp_utils.CalculateOccupiedRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT))
+		fmt.Println("In VRead, remaining space in rec buf = ")
+		fmt.Println(bytesAvailable)
 		bytesToRead := min(bytesAvailable, maxBytes)
 
 		lbr := tcpConn.RecvBuf.LBR

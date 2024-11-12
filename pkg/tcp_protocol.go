@@ -130,7 +130,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" && len(tcpPayload) > 0{
 			// tcpConn.AckReceived <- tcpHdr.AckNum
 			// Calculate remaining space in buffer
-			remainingSpace := iptcp_utils.CalculateRemainingRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT)
+			remainingSpace := BUFFER_SIZE - iptcp_utils.CalculateOccupiedRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT)
 			if len(tcpPayload) > int(remainingSpace) {
 				fmt.Println("Data received is larger than remaining space in receive buffer")
 			} else {
