@@ -143,13 +143,23 @@ func TCPFieldsToString(hdr *header.TCPFields) string {
 }
 
 func CalculateRemainingSendBufSpace(LBW int32, UNA int32) int {
+	// fmt.Println("LBW = ")
+	// fmt.Println(LBW)
+	// fmt.Println("UNA = ")
+	// fmt.Println(UNA)
 	if LBW < 0 {
 		return BUFFER_SIZE
-	} else if LBW >= int32(UNA) {
-		return int(BUFFER_SIZE - (LBW - UNA) - 1)
+	} else if UNA > LBW {
+		return BUFFER_SIZE
 	} else {
-		return int(UNA - LBW - 1)
+		return int(BUFFER_SIZE - (LBW - UNA) - 1)
 	}
+	
+	// else if LBW >= int32(UNA) {
+	// 	return int(BUFFER_SIZE - (LBW - UNA) - 1)
+	// } else {
+	// 	return int(UNA - LBW - 1)
+	// }
 }
 
 func CalculateRemainingRecvBufSpace(LBR int32, NXT uint32) int32 {

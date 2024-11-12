@@ -127,7 +127,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			go tcpConn.WatchRecvBuf()
 
 			// Finished handshake, received actual data
-		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
+		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" && len(tcpPayload) > 0{
 			// tcpConn.AckReceived <- tcpHdr.AckNum
 			// Calculate remaining space in buffer
 			remainingSpace := iptcp_utils.CalculateRemainingRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT)
@@ -151,6 +151,13 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				// Send signal that bytes are now in receive buffer
 				// tcpConn.RecvSpaceOpen <- true
 			}
+		
+		
+			// receiving ack from sent data
+		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" && len(tcpPayload) == 0{
+			fmt.Println("RECEIVED ACK")
+			// tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+
 		}
 		return
 
@@ -219,4 +226,25 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		// drop packet
 		return
 	}
+}
+
+func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn) {
+	ACK := (header.AckNum - tcpConn.ISN)
+
+	fmt.Println("In handle ack")
+	fmt.Println("nxt = ")
+	fmt.Println(tcpConn.SendBuf.NXT)
+
+	if (tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT + 1) {
+		// valid ack number, RFC 3.4
+		tcpConn.ACK = header.AckNum
+		tcpConn.SendBuf.UNA = int32(ACK - 1)
+		fmt.Println("New una = ")
+		fmt.Println(tcpConn.SendBuf.UNA)
+
+	} else {
+		// invalid ack number
+		return
+	}
+
 }
