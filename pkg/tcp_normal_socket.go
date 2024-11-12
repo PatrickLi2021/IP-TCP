@@ -144,21 +144,28 @@ func (tcpConn *TCPConn) SendSegment() {
 		<-tcpConn.SendBufferHasData
 		// Process the send buffer
 		for tcpConn.SendBuf.LBW >= tcpConn.SendBuf.NXT {
-			fmt.Println("NXT = ")
-			fmt.Println(tcpConn.SendBuf.NXT)
+			// fmt.Println("NXT = ")
+			// fmt.Println(tcpConn.SendBuf.NXT)
 
-			fmt.Println("LBW = ")
-			fmt.Println(tcpConn.SendBuf.LBW)
+			// fmt.Println("LBW = ")
+			// fmt.Println(tcpConn.SendBuf.LBW)
 			endIdx := tcpConn.SendBuf.LBW + 1
+			// fmt.Println("ENDINDX")
+			// fmt.Println(endIdx)
 			if tcpConn.SendBuf.NXT < tcpConn.SendBuf.LBW {
 				bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 				if bytesToSend > maxPayloadSize {
-					endIdx = tcpConn.SendBuf.NXT + maxPayloadSize + 1
+					endIdx = tcpConn.SendBuf.NXT + maxPayloadSize
 				}
+				fmt.Println("Messi")
 				tcpConn.sendTCP(tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				tcpConn.SeqNum += uint32(bytesToSend)
 				tcpConn.TotalBytesSent += uint32(bytesToSend)
 				tcpConn.SendBuf.NXT = endIdx
+				fmt.Println("Ronaldo")
+
+				fmt.Println("LOOO NXT")
+				fmt.Println(tcpConn.SendBuf.NXT)
 
 			} else {
 				nxt := tcpConn.SendBuf.NXT
@@ -180,6 +187,8 @@ func (tcpConn *TCPConn) SendSegment() {
 			}
 		}
 		tcpConn.SendBuf.NXT = tcpConn.SendBuf.NXT % BUFFER_SIZE
+		fmt.Println("LEEDLE NXT")
+		fmt.Println(tcpConn.SendBuf.NXT)
 	}
 }
 
