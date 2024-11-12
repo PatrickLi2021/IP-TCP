@@ -121,7 +121,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 			// Received an ACK, so set state to ESTABLISHED
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
-			fmt.Println("3")
 			tcpConn.State = "ESTABLISHED"
 			listenConn.ConnCreated <- tcpConn
 			go tcpConn.SendSegment()
@@ -139,8 +138,9 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				bufferPointer := int(tcpConn.RecvBuf.NXT) - int(tcpConn.RecvBuf.LBR)
 				copy(tcpConn.RecvBuf.Buffer[bufferPointer:bufferPointer+len(tcpPayload)], tcpPayload)
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-				fmt.Println("HERE IS THE RECEIVE BUFFER")
-				fmt.Println(tcpConn.RecvBuf.Buffer)
+				tcpConn.RecvBuf.NXT = tcpConn.RecvBuf.NXT % BUFFER_SIZE
+				fmt.Println("HERE IS THE RECEIVE NXT IN TCPHANDLER")
+				fmt.Println(tcpConn.RecvBuf.NXT)
 
 				// Send an ACK back
 				if len(tcpPayload) > 0 {
