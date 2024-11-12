@@ -36,8 +36,8 @@ type TCPConn struct {
 	RemoteAddr        netip.Addr
 	TCPStack          *TCPStack
 	SeqNum            uint32
-	SendBuf           *TCPSendBuffer
-	RecvBuf           *TCPRecvBuffer
+	SendBuf           *TCPSendBuf
+	RecvBuf           *TCPRecvBuf
 	SendSpaceOpen     chan bool
 	RecvSpaceOpen     chan bool
 	SendBufferHasData chan bool
@@ -163,14 +163,14 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 		// Create new normal socket
 		seqNum := int(rand.Uint32())
-		SendBuf := &TCPSendBuffer{
+		SendBuf := &TCPSendBuf{
 			Buffer:  make([]byte, BUFFER_SIZE),
 			UNA:     0,
 			NXT:     0,
 			LBW:     -1,
 			Channel: make(chan bool), // TODO subject to change
 		}
-		RecvBuf := &TCPRecvBuffer{
+		RecvBuf := &TCPRecvBuf{
 			Buffer: make([]byte, BUFFER_SIZE),
 			NXT:    0,
 			LBR:    0,

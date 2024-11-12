@@ -2,7 +2,7 @@ package protocol
 
 const BUFFER_SIZE = 10
 
-type TCPSendBuffer struct {
+type TCPSendBuf struct {
 	Buffer  []byte
 	UNA     int32 // Represents oldest un-ACKed segment (updated by TCP stack)
 	NXT     int32 // Represents data in the buffer that has been sent (updated by TCP stack)
@@ -11,7 +11,7 @@ type TCPSendBuffer struct {
 	Channel chan bool
 }
 
-type TCPRecvBuffer struct {
+type TCPRecvBuf struct {
 	Buffer []byte
 	LBR    uint32 // Represents the last byte read (updated by app)
 	NXT    uint32 // Represents how much data we've received (next byte we expect to receive)

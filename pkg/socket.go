@@ -45,7 +45,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	seqNum := rand.Uint32()
 
 	// creating send and receive buffers
-	SendBuf := &TCPSendBuffer{
+	SendBuf := &TCPSendBuf{
 		Buffer:  make([]byte, BUFFER_SIZE),
 		UNA:     0,
 		NXT:     0,
@@ -53,7 +53,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		Channel: make(chan bool), // TODO subject to change
 	}
 
-	RecvBuf := &TCPRecvBuffer{
+	RecvBuf := &TCPRecvBuf{
 		Buffer: make([]byte, BUFFER_SIZE),
 		LBR:    0,
 		NXT:    0,
