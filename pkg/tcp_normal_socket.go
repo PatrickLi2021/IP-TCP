@@ -30,7 +30,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 			return 0, io.EOF
 		}
 		// Wait if there's no data available in the receive buffer
-		if tcpConn.RecvBuf.NXT == tcpConn.RecvBuf.LBR && tcpConn.State != "CLOSED" {
+		if (tcpConn.RecvBuf.NXT - tcpConn.RecvBuf.LBR) <= 1 && tcpConn.State != "CLOSED" {
 			fmt.Println("IN HERE HALAND")
 			<-tcpConn.RecvSpaceOpen // Block until data is available
 			continue
@@ -49,43 +49,12 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		fmt.Println(lbr)
 		fmt.Println(nxt)
 
-		// Read data based on buffer wrap-around conditions
-		if lbr <= nxt {
-			fmt.Println("If statement")
-			// Direct read when LBR is before or at NXT
-			n := 0
-			if lbr+bytesToRead < nxt {
-				n = copy(buf[:bytesToRead], tcpConn.RecvBuf.Buffer[lbr:lbr+bytesToRead])
-			} else {
-				n = copy(buf[:nxt-lbr+1], tcpConn.RecvBuf.Buffer[lbr:nxt])
-			}
-			tcpConn.RecvBuf.LBR = (lbr + uint32(n)) % BUFFER_SIZE
-			fmt.Println("New lbr after updating")
-			fmt.Println(tcpConn.RecvBuf.LBR)
-			bytesRead += n
-		} else {
-			fmt.Println("else statement")
-			// Wrapped buffer, read in two parts
-			// If the byte slice is empty
-			if bytes.Equal(tcpConn.RecvBuf.Buffer[lbr:], make([]byte, BUFFER_SIZE-lbr)) {
-				<-tcpConn.RecvSpaceOpen // Block until data is available
-				continue
-			}
-			firstChunk := copy(buf[bytesRead:], tcpConn.RecvBuf.Buffer[lbr:])
-			bytesRead += firstChunk
-
-			if uint32(firstChunk) < bytesToRead {
-				if bytes.Equal(tcpConn.RecvBuf.Buffer[:bytesToRead-uint32(firstChunk)], make([]byte, BUFFER_SIZE-bytesToRead-uint32(firstChunk))) {
-					<-tcpConn.RecvSpaceOpen // Block until data is available
-					continue
-				}
-				secondChunk := copy(buf[bytesRead:], tcpConn.RecvBuf.Buffer[:bytesToRead-uint32(firstChunk)])
-				bytesRead += secondChunk
-				tcpConn.RecvBuf.LBR = uint32(secondChunk)
-			} else {
-				tcpConn.RecvBuf.LBR = (lbr + uint32(firstChunk)) % BUFFER_SIZE
-			}
+		for i := 0; i < int(bytesToRead); i++ {
+			lbr += 1
+			buf[i] = tcpConn.RecvBuf.Buffer[lbr % BUFFER_SIZE]
 		}
+		tcpConn.RecvBuf.LBR = lbr
+		bytesRead += int(bytesToRead) 
 	}
 	return bytesRead, nil
 }

@@ -135,10 +135,11 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				fmt.Println("Data received is larger than remaining space in receive buffer")
 			} else {
 				// Copy data into receive buffer
-				bufferPointer := int(tcpConn.RecvBuf.NXT) - int(tcpConn.RecvBuf.LBR)
-				copy(tcpConn.RecvBuf.Buffer[bufferPointer:bufferPointer+len(tcpPayload)], tcpPayload)
+				startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
+				for i := 0; i < len(tcpPayload); i++ {
+					tcpConn.RecvBuf.Buffer[(startIdx + i) % BUFFER_SIZE] = tcpPayload[i]
+				}
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-				tcpConn.RecvBuf.NXT = tcpConn.RecvBuf.NXT % BUFFER_SIZE
 				fmt.Println("HERE IS THE RECEIVE NXT IN TCPHANDLER")
 				fmt.Println(tcpConn.RecvBuf.NXT)
 
