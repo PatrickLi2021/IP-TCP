@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
@@ -51,24 +50,24 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	return bytesRead, nil
 }
 
-func (tcpConn *TCPConn) ListenForACK() error {
-	for {
-		select {
-		case ackNumber := <-tcpConn.AckReceived:
-			// Retrieve ACK number from packet
-			if int32(ackNumber) > tcpConn.SendBuf.UNA {
-				// Move the UNA pointer and free up space in the send buffer
-				tcpConn.SendBuf.UNA = int32(ackNumber)
-				// Send signal through channel indicating that space has freed up
-				tcpConn.SendSpaceOpen <- true
-			}
-			return nil
-		default:
-			// Channel was empty
-			return errors.New("no ack number received from channel")
-		}
-	}
-}
+// func (tcpConn *TCPConn) ListenForACK() error {
+// 	for {
+// 		select {
+// 		case ackNumber := <-tcpConn.AckReceived:
+// 			// Retrieve ACK number from packet
+// 			if int32(ackNumber) > tcpConn.SendBuf.UNA {
+// 				// Move the UNA pointer and free up space in the send buffer
+// 				tcpConn.SendBuf.UNA = int32(ackNumber)
+// 				// Send signal through channel indicating that space has freed up
+// 				tcpConn.SendSpaceOpen <- true
+// 			}
+// 			return nil
+// 		default:
+// 			// Channel was empty
+// 			return errors.New("no ack number received from channel")
+// 		}
+// 	}
+// }
 
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
@@ -118,25 +117,6 @@ func (tcpConn *TCPConn) SendSegment() {
 			tcpConn.SeqNum += uint32(bytesToSend)
 			tcpConn.TotalBytesSent += uint32(payloadSize)
 			bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
-		
-			// else {
-			// 	nxt := tcpConn.SendBuf.NXT
-			// 	if int32(len(tcpConn.SendBuf.Buffer))-nxt > maxPayloadSize {
-			// 		endIdx = nxt + maxPayloadSize + 1
-			// 		tcpConn.sendTCP(tcpConn.SendBuf.Buffer[nxt:endIdx], header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-			// 		tcpConn.TotalBytesSent += uint32(endIdx - nxt)
-			// 		tcpConn.SendBuf.NXT += int32(maxPayloadSize)
-			// 		continue
-			// 	}
-
-			// 	remainingSpace := maxPayloadSize - (int32(len(tcpConn.SendBuf.Buffer)) - nxt)
-			// 	firstChunk := tcpConn.SendBuf.Buffer[nxt:]
-			// 	secondChunk := tcpConn.SendBuf.Buffer[:remainingSpace]
-			// 	bytesToSend := append(firstChunk, secondChunk...)
-			// 	tcpConn.sendTCP(bytesToSend, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-			// 	tcpConn.TotalBytesSent += uint32(len(bytesToSend))
-			// 	tcpConn.SendBuf.NXT = remainingSpace
-			// }
 		}
 	}
 }
