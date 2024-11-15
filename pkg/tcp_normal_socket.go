@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
@@ -110,7 +109,7 @@ func (tcpConn *TCPConn) SendSegment() {
 			payloadSize := min(bytesToSend, maxPayloadSize)
 			payloadBuf := make([]byte, payloadSize)
 			for i := 0; i < int(payloadSize); i++ {
-				payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT % BUFFER_SIZE]
+				payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
 				tcpConn.SendBuf.NXT += 1
 			}
 			tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -134,13 +133,13 @@ func (tcpConn *TCPConn) WatchRecvBuf() error {
 
 // VWrite writes into your send buffer and that wakes up some thread that's watching your send buffer and then you send the packet
 // On the other end, you have a thread that will wake up when you receive a segment. You load it into your receive buffer
-func (tcpConn *TCPConn) NoDataAvailable(LBR uint32, NXT uint32) bool {
-	if LBR == NXT {
-		return true
-	} else if LBR >= NXT {
-		// If the only bytes left to read are null, then that equates to having no data
-		return bytes.Equal(tcpConn.RecvBuf.Buffer[NXT:LBR], make([]byte, BUFFER_SIZE-NXT-LBR))
-	} else {
-		return bytes.Equal(tcpConn.RecvBuf.Buffer[LBR:NXT], make([]byte, BUFFER_SIZE-LBR-NXT))
-	}
-}
+// func (tcpConn *TCPConn) NoDataAvailable(LBR uint32, NXT uint32) bool {
+// 	if LBR == NXT {
+// 		return true
+// 	} else if LBR >= NXT {
+// 		// If the only bytes left to read are null, then that equates to having no data
+// 		return bytes.Equal(tcpConn.RecvBuf.Buffer[NXT:LBR], make([]byte, BUFFER_SIZE-NXT-LBR))
+// 	} else {
+// 		return bytes.Equal(tcpConn.RecvBuf.Buffer[LBR:NXT], make([]byte, BUFFER_SIZE-LBR-NXT))
+// 	}
+// }

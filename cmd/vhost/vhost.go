@@ -126,6 +126,19 @@ func main() {
 			socketID, _ := strconv.Atoi(parts[1])
 			numBytesToRead, _ := strconv.ParseUint(parts[2], 10, 32)
 			tcpStack.RCommand(uint32(socketID), uint32(numBytesToRead))
+		} else if len(userInput) > 8 && userInput[0:2] == "sf" {
+			parts := strings.Fields(userInput)
+			filePath := parts[1]
+			addr, _ := netip.ParseAddr(parts[2])
+			portInt, _ := strconv.Atoi(parts[3])
+			port := uint16(portInt)
+			tcpStack.SfCommand(filePath, addr, port)
+		} else if len(userInput) > 6 && userInput[0:2] == "rf" {
+			parts := strings.Fields(userInput)
+			filePath := parts[1]
+			portInt, _ := strconv.Atoi(parts[2])
+			port := uint16(portInt)
+			tcpStack.RfCommand(filePath, port)
 		} else {
 			fmt.Println("Invalid command.")
 			continue

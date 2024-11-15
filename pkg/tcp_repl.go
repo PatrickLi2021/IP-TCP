@@ -2,9 +2,10 @@ package protocol
 
 import (
 	"fmt"
-
 	"net/netip"
+	"os"
 	"strconv"
+	"tcp-tcp-team-pa/iptcp_utils"
 )
 
 func (tcpStack *TCPStack) ListSockets() {
@@ -71,4 +72,80 @@ func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
 	appBuffer := make([]byte, BUFFER_SIZE)
 	bytesRead, _ := tcpConn.VRead(appBuffer, numBytes)
 	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer[:numBytes]))
+}
+
+func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint16) error {
+	tcpConn, err := tcpStack.VConnect(addr, port)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	// Open file
+	file, err := os.Open(filepath)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return err
+	}
+	defer file.Close()
+
+	// Read from file
+	bytesSent := 0
+	fileInfo, err := file.Stat()
+	fileSize := int(fileInfo.Size())
+
+	for bytesSent < fileSize {
+		lbw := tcpConn.SendBuf.LBW
+		una := tcpConn.SendBuf.UNA
+
+		// Read into data how much available space there is in send buffer
+		data := make([]byte, iptcp_utils.CalculateRemainingSendBufSpace(lbw, una))
+		_, err = file.Read(data)
+		if err != nil {
+			fmt.Println("Error reading file:", err)
+			return err
+		}
+		// Call VWrite()
+		bytesWritten, _ := tcpConn.VWrite(data)
+		bytesSent += bytesWritten
+	}
+	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
+	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
+	return nil
+}
+
+func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
+	// Call VListen
+	tcpListener, _ := tcpStack.VListen(port)
+
+	// Call VAccept
+	tcpConn, _ := tcpListener.VAccept()
+
+	// Open file to read into
+	outFile, err := os.Create(filepath)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer outFile.Close()
+	// TODO: Continue reading as long as the connection stays open
+
+	bytesReceived := 0
+	for bytesReceived < 50 {
+		// Calculate how much data I can read in
+		nxt := tcpConn.RecvBuf.NXT
+		lbr := tcpConn.RecvBuf.LBR
+		if uint32(nxt)-uint32(lbr) > 0 {
+			availableSpace := iptcp_utils.CalculateOccupiedRecvBufSpace(lbr, nxt)
+			buf := make([]byte, availableSpace)
+			n, _ := tcpConn.VRead(buf, uint32(availableSpace))
+			if n != 0 {
+				bytesWritten, write_err := outFile.Write(buf[:n])
+				bytesReceived += bytesWritten
+				if write_err != nil {
+					fmt.Println(err)
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
