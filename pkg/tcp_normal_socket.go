@@ -72,6 +72,8 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
 	bytesToWrite := len(data)
+	fmt.Println("VWrite, len of data =")
+	fmt.Println(len(data))
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)

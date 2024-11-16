@@ -168,6 +168,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					// Send an ACK back
 					if len(tcpPayload) > 0 {
 						tcpConn.CurWindow -= uint16(len(tcpPayload))
+						fmt.Println("in handler, sending ack back")
 						tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpHdr.SeqNum+uint32(len(tcpPayload)), tcpConn.CurWindow)
 					}
 					// Send signal that bytes are now in receive buffer

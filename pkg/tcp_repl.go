@@ -91,14 +91,21 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	// Read from file
 	bytesSent := 0
 	fileInfo, err := file.Stat()
+	if (err != nil) {
+		fmt.Println(err)
+		return err
+	}
 	fileSize := int(fileInfo.Size())
+	fmt.Println("SF, file length =")
+	fmt.Println(fileSize)
 
 	for bytesSent < fileSize {
 		lbw := tcpConn.SendBuf.LBW
 		una := tcpConn.SendBuf.UNA
 
 		// Read into data how much available space there is in send buffer
-		data := make([]byte, iptcp_utils.CalculateRemainingSendBufSpace(lbw, una))
+		data_len := min(iptcp_utils.CalculateRemainingSendBufSpace(lbw, una), fileSize)
+		data := make([]byte, data_len)
 		_, err = file.Read(data)
 		if err != nil {
 			fmt.Println("Error reading file:", err)
@@ -129,7 +136,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 50 {
+	for bytesReceived <= 19 {
 		// Calculate how much data I can read in
 		nxt := tcpConn.RecvBuf.NXT
 		lbr := tcpConn.RecvBuf.LBR
