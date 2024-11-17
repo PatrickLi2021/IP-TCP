@@ -101,13 +101,11 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	<-tcpConn.SfRfEstablished
 	go tcpConn.SendSegment()
 
+	fmt.Println("initial bytes sent = " + strconv.Itoa(bytesSent))
 	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
-		fmt.Println("BUF SPACE: " + strconv.Itoa(buf_space))
-		data_len := min(buf_space, fileSize)
-		fmt.Println()
-		fmt.Println("Data Len: " + strconv.Itoa(data_len))
+		data_len := min(buf_space, fileSize-bytesSent)
 		data := make([]byte, data_len)
 		_, err = file.Read(data)
 		if err != nil {
@@ -115,8 +113,15 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 			return err
 		}
 		// Call VWrite()
+		fmt.Println("before vwrite")
 		bytesWritten, _ := tcpConn.VWrite(data)
 		bytesSent += bytesWritten
+		fmt.Println("after vwrite")
+		// if (bytesWritten != 0) {
+		// 	fmt.Println("bytes written = " + strconv.Itoa(bytesWritten))
+		// 	fmt.Println("bytes sent = " + strconv.Itoa(bytesSent))
+		// }
+		
 	}
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED

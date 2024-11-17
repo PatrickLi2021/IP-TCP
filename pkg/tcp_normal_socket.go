@@ -41,6 +41,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		}
 		tcpConn.RecvBuf.LBR = lbr
 		bytesRead += int(bytesToRead)
+		// TODO: tcpConn.curWindow += bytesRead
 	}
 	return bytesRead, nil
 }
