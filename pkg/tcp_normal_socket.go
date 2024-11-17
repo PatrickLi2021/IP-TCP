@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/google/netstack/tcpip/header"
@@ -84,7 +83,6 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
-			fmt.Println("waiting for remaining space in VWrite")
 			remainingSpace = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		}
 

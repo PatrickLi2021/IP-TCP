@@ -71,8 +71,9 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		ISN:               seqNum,
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
+		SfRfEstablished:   make(chan bool),
 		SendBufferHasData: make(chan bool),
-		RecvBufferHasData:     make(chan bool),
+		RecvBufferHasData: make(chan bool),
 		SendSpaceOpen:     make(chan bool),
 		CurWindow:         BUFFER_SIZE,
 	}

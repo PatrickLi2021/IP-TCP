@@ -79,7 +79,6 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		fmt.Println(err)
 		return err
 	}
-	go tcpConn.SendSegment()
 	// Open file
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -96,8 +95,10 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		return err
 	}
 	fileSize := int(fileInfo.Size())
-	fmt.Println("SF, file length =")
-	fmt.Println(fileSize)
+
+	// Block until the connection is fully established before we call sendSegment()
+	<-tcpConn.SfRfEstablished
+	go tcpConn.SendSegment()
 
 	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
@@ -111,7 +112,6 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		}
 		// Call VWrite()
 		bytesWritten, _ := tcpConn.VWrite(data)
-		fmt.Println("Finished calling VWrite")
 		bytesSent += bytesWritten
 	}
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
@@ -125,7 +125,6 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 
 	// Call VAccept
 	tcpConn, _ := tcpListener.VAccept()
-
 	// Open file to read into
 	outFile, err := os.Create(filepath)
 	if err != nil {
@@ -137,17 +136,17 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	bytesReceived := 0
 	for bytesReceived <= 22 {
 		// Calculate how much data can be read in
-		availableSpace := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-		fmt.Println("RF, available space = " + strconv.Itoa(int(availableSpace)))
+		availableSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		buf := make([]byte, availableSpace)
 		n, err := tcpConn.VRead(buf, uint32(availableSpace))
 		if err != nil {
 			fmt.Println(err)
 			return err
 		}
-		fmt.Println("RF, bytes from VRead = " + strconv.Itoa(n))
 		if n != 0 {
+			fmt.Println("Ronaldo")
 			bytesWritten, write_err := outFile.Write(buf[:n])
+			fmt.Println("Messi")
 			bytesReceived += bytesWritten
 			if write_err != nil {
 				fmt.Println(err)
