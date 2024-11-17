@@ -115,9 +115,8 @@ func main() {
 				fmt.Println(err)
 				continue
 			}
-
+			<-tcpConn.SfRfEstablished
 			// thread that is woken up when there is stuff in send buf to send out
-			fmt.Println("Salah")
 			go tcpConn.SendSegment()
 		} else if len(userInput) >= 5 && userInput[0:2] == "s " {
 			parts := strings.Split(userInput, " ")

@@ -203,8 +203,11 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	if tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
+		prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		tcpConn.SendSpaceOpen <- true
+		if (prevSpace == 0) {
+			tcpConn.SendSpaceOpen <- true
+		}
 	} else {
 		// invalid ack number
 		return

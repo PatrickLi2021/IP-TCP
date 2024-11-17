@@ -95,13 +95,11 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		return err
 	}
 	fileSize := int(fileInfo.Size())
-	fmt.Println("FILE SIZE" + strconv.Itoa(fileSize))
 
 	// Block until the connection is fully established before we call sendSegment()
 	<-tcpConn.SfRfEstablished
 	go tcpConn.SendSegment()
 
-	fmt.Println("initial bytes sent = " + strconv.Itoa(bytesSent))
 	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
@@ -113,10 +111,8 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 			return err
 		}
 		// Call VWrite()
-		fmt.Println("before vwrite")
 		bytesWritten, _ := tcpConn.VWrite(data)
 		bytesSent += bytesWritten
-		fmt.Println("after vwrite")
 		// if (bytesWritten != 0) {
 		// 	fmt.Println("bytes written = " + strconv.Itoa(bytesWritten))
 		// 	fmt.Println("bytes sent = " + strconv.Itoa(bytesSent))
@@ -153,9 +149,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 			return err
 		}
 		if n != 0 {
-			fmt.Println("Ronaldo")
 			bytesWritten, write_err := outFile.Write(buf[:n])
-			fmt.Println("Messi")
 			bytesReceived += bytesWritten
 			if write_err != nil {
 				fmt.Println(err)
