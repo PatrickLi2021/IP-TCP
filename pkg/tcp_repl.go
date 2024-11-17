@@ -70,7 +70,7 @@ func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
 	appBuffer := make([]byte, BUFFER_SIZE)
 	bytesRead, _ := tcpConn.VRead(appBuffer, numBytes)
-	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer[:numBytes]))
+	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer[:bytesRead]))
 }
 
 func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint16) error {

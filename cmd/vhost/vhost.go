@@ -121,7 +121,7 @@ func main() {
 		} else if len(userInput) >= 5 && userInput[0:2] == "s " {
 			parts := strings.Split(userInput, " ")
 			socketID, _ := strconv.Atoi(parts[1])
-			bytesToSend := parts[2]
+			bytesToSend := strings.Join(parts[2:], " ")
 			tcpStack.SCommand(uint32(socketID), bytesToSend)
 		} else if len(userInput) >= 5 && userInput[0:2] == "r " {
 			parts := strings.Split(userInput, " ")
