@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/google/netstack/tcpip/header"
@@ -25,7 +26,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		}
 		// Wait if there's no data available in the receive buffer
 		if (int32(tcpConn.RecvBuf.NXT)-tcpConn.RecvBuf.LBR) <= 1 && tcpConn.State != "CLOSED" {
-			<-tcpConn.RecvSpaceOpen // Block until data is available
+			<-tcpConn.RecvBufferHasData // Block until data is available
 			continue
 		}
 
@@ -74,6 +75,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
+			fmt.Println("waiting for remaining space in VWrite")
 			remainingSpace = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		}
 
@@ -112,17 +114,6 @@ func (tcpConn *TCPConn) SendSegment() {
 			tcpConn.SeqNum += uint32(payloadSize)
 			tcpConn.TotalBytesSent += uint32(payloadSize)
 			bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
-		}
-	}
-}
-
-func (tcpConn *TCPConn) WatchRecvBuf() error {
-	for {
-		nxt := tcpConn.RecvBuf.NXT
-		lbr := tcpConn.RecvBuf.LBR
-		// Indicates that there's space in receive buffer
-		if int32(nxt)-lbr > 1 {
-			tcpConn.RecvSpaceOpen <- true
 		}
 	}
 }

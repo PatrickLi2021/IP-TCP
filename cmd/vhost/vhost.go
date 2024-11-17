@@ -110,11 +110,14 @@ func main() {
 				fmt.Println(err)
 				continue
 			}
-			_, err = tcpStack.VConnect(ip, uint16(port))
+			tcpConn, err := tcpStack.VConnect(ip, uint16(port))
 			if err != nil {
 				fmt.Println(err)
 				continue
 			}
+
+			// thread that is woken up when there is stuff in send buf to send out
+			go tcpConn.SendSegment()
 
 		} else if len(userInput) >= 5 && userInput[0:2] == "s " {
 			parts := strings.Split(userInput, " ")

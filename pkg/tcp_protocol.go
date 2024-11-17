@@ -41,7 +41,7 @@ type TCPConn struct {
 	SendBuf           *TCPSendBuf
 	RecvBuf           *TCPRecvBuf
 	SendSpaceOpen     chan bool
-	RecvSpaceOpen     chan bool
+	RecvBufferHasData chan bool
 	SendBufferHasData chan bool
 	ISN               uint32
 	ACK               uint32
@@ -119,6 +119,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					tcpConn.ACK = tcpHdr.SeqNum + 1
 
 					// sending ACK back
+					fmt.Println("About to send ACK back")
 					err := tcpConn.sendTCP([]byte{}, uint32(header.TCPFlagAck), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 					if err != nil {
 						fmt.Println("Could not sent ACK back")
@@ -128,11 +129,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 					// state is now established
 					tcpConn.State = "ESTABLISHED"
-
-					// start thread to send segments (if any) in send buf
-					go tcpConn.SendSegment()
-					// start thread to read from rec buf (if anything exists)
-					go tcpConn.WatchRecvBuf()
 				// }
 			// }
 
@@ -143,11 +139,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			// signal VAccept to return
 			listenConn.ConnCreated <- tcpConn
 
-			// start thread to send segments (if any) in send buf
-			go tcpConn.SendSegment()
-			// start thread to read from rec buf (if anything exists)
-			go tcpConn.WatchRecvBuf()
-
 			// Finished handshake, now receiving actual data and/or ACKs
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
 			// tcpConn.AckReceived <- tcpHdr.AckNum
@@ -156,7 +147,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				// Calculate remaining space in buffer
 				remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 				if len(tcpPayload) > int(remainingSpace) {
-					// TODO
+					// TODO - should we ever get a payload that is bigger than current rec window?
 					fmt.Println("Data received is larger than remaining space in receive buffer")
 				} else {
 					// Copy data into receive buffer
@@ -165,6 +156,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 						tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 					}
 					tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+					tcpConn.RecvBufferHasData <- true
 
 					// Send an ACK back
 					if len(tcpPayload) > 0 {
@@ -213,6 +205,8 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		// tcpConn.ACK = header.SeqNum
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
 		fmt.Println("IN HANDLE ACK, UNA = " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
+		fmt.Println("IN HANDLE ACK, LBW = " + strconv.Itoa(int(tcpConn.SendBuf.LBW)))
+		fmt.Println("IN HANDLE ACK, NXT = " + strconv.Itoa(int(tcpConn.SendBuf.NXT)))
 
 	} else {
 		// invalid ack number
@@ -250,7 +244,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn (tcpHdr header.TCPFields, ipHdr ip
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
 		SendSpaceOpen:     make(chan bool),
-		RecvSpaceOpen:     make(chan bool),
+		RecvBufferHasData: make(chan bool),
 		SendBufferHasData: make(chan bool),
 		CurWindow:         BUFFER_SIZE,
 		ACK:							 tcpHdr.SeqNum + 1,

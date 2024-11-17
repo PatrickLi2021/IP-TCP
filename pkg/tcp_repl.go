@@ -101,13 +101,8 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
-		fmt.Println("sf command, buf space = ")
-		fmt.Println(buf_space)
-		fmt.Println()
 		data_len := min(buf_space, fileSize)
 		data := make([]byte, data_len)
-		fmt.Println("sf command, data len = ")
-		fmt.Println(data_len)
 		_, err = file.Read(data)
 		if err != nil {
 			fmt.Println("Error reading file:", err)
