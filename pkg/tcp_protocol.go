@@ -76,6 +76,7 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 }
 
 func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
+	fmt.Println("in tcp handler")
 	// Retrieve the IP header and IP payload (which contains TCP header and TCP payload)
 	ipHdr := packet.Header
 	tcpHeaderAndData := packet.Payload
@@ -142,8 +143,9 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			// Finished handshake, now receiving actual data and/or ACKs
 		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
 			// tcpConn.AckReceived <- tcpHdr.AckNum
-			
+			fmt.Println("getting data")
 			if (len(tcpPayload) > 0) {
+				fmt.Println("payload > 0")
 				// Calculate remaining space in buffer
 				remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 				if len(tcpPayload) > int(remainingSpace) {
@@ -151,12 +153,16 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					fmt.Println("Data received is larger than remaining space in receive buffer")
 				} else {
 					// Copy data into receive buffer
+					fmt.Println("copying data")
 					startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
 					for i := 0; i < len(tcpPayload); i++ {
 						tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 					}
+					fmt.Println("HERE")
 					tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-					tcpConn.RecvBufferHasData <- true
+					fmt.Println("chanell before")
+					go tcpConn.WatchRecvBuf()
+					fmt.Println("channel after")
 
 					// Send an ACK back
 					if len(tcpPayload) > 0 {
@@ -199,6 +205,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 }
 
 func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn) {
+	// moving UNA since we have ACKed some packets
 	ACK := (header.AckNum - tcpConn.ISN)
 	if (tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT + 1) {
 		// valid ack number, RFC 3.4

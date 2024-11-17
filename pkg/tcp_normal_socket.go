@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	maxPayloadSize = 5 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 3 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
@@ -25,7 +25,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 			return 0, io.EOF
 		}
 		// Wait if there's no data available in the receive buffer
-		if (int32(tcpConn.RecvBuf.NXT)-tcpConn.RecvBuf.LBR) <= 1 && tcpConn.State != "CLOSED" {
+		if (tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace() == 0) {
 			<-tcpConn.RecvBufferHasData // Block until data is available
 			continue
 		}
@@ -64,6 +64,15 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 // 		}
 // 	}
 // }
+
+func (tcpConn *TCPConn) WatchRecvBuf() {
+	nxt := tcpConn.RecvBuf.NXT
+	lbr := tcpConn.RecvBuf.LBR
+	// Indicates that there's space in receive buffer
+	if int32(nxt)-lbr > 1 {
+		tcpConn.RecvBufferHasData <- true
+	}
+}
 
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
