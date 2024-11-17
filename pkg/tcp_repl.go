@@ -79,6 +79,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		fmt.Println(err)
 		return err
 	}
+	go tcpConn.SendSegment()
 	// Open file
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -90,7 +91,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	// Read from file
 	bytesSent := 0
 	fileInfo, err := file.Stat()
-	if (err != nil) {
+	if err != nil {
 		fmt.Println(err)
 		return err
 	}
@@ -110,6 +111,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		}
 		// Call VWrite()
 		bytesWritten, _ := tcpConn.VWrite(data)
+		fmt.Println("Finished calling VWrite")
 		bytesSent += bytesWritten
 	}
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
@@ -139,7 +141,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 		fmt.Println("RF, available space = " + strconv.Itoa(int(availableSpace)))
 		buf := make([]byte, availableSpace)
 		n, err := tcpConn.VRead(buf, uint32(availableSpace))
-		if (err != nil) {
+		if err != nil {
 			fmt.Println(err)
 			return err
 		}
