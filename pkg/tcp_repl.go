@@ -5,7 +5,6 @@ import (
 	"net/netip"
 	"os"
 	"strconv"
-	"tcp-tcp-team-pa/iptcp_utils"
 )
 
 func (tcpStack *TCPStack) ListSockets() {
@@ -100,12 +99,15 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	fmt.Println(fileSize)
 
 	for bytesSent < fileSize {
-		lbw := tcpConn.SendBuf.LBW
-		una := tcpConn.SendBuf.UNA
-
 		// Read into data how much available space there is in send buffer
-		data_len := min(iptcp_utils.CalculateRemainingSendBufSpace(lbw, una), fileSize)
+		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
+		fmt.Println("sf command, buf space = ")
+		fmt.Println(buf_space)
+		fmt.Println()
+		data_len := min(buf_space, fileSize)
 		data := make([]byte, data_len)
+		fmt.Println("sf command, data len = ")
+		fmt.Println(data_len)
 		_, err = file.Read(data)
 		if err != nil {
 			fmt.Println("Error reading file:", err)
@@ -136,21 +138,23 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived <= 19 {
-		// Calculate how much data I can read in
-		nxt := tcpConn.RecvBuf.NXT
-		lbr := tcpConn.RecvBuf.LBR
-		if uint32(nxt)-uint32(lbr) > 0 {
-			availableSpace := iptcp_utils.CalculateOccupiedRecvBufSpace(lbr, nxt)
-			buf := make([]byte, availableSpace)
-			n, _ := tcpConn.VRead(buf, uint32(availableSpace))
-			if n != 0 {
-				bytesWritten, write_err := outFile.Write(buf[:n])
-				bytesReceived += bytesWritten
-				if write_err != nil {
-					fmt.Println(err)
-					return err
-				}
+	for bytesReceived <= 22 {
+		// Calculate how much data can be read in
+		availableSpace := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		fmt.Println("RF, available space = " + strconv.Itoa(int(availableSpace)))
+		buf := make([]byte, availableSpace)
+		n, err := tcpConn.VRead(buf, uint32(availableSpace))
+		if (err != nil) {
+			fmt.Println(err)
+			return err
+		}
+		fmt.Println("RF, bytes from VRead = " + strconv.Itoa(n))
+		if n != 0 {
+			bytesWritten, write_err := outFile.Write(buf[:n])
+			bytesReceived += bytesWritten
+			if write_err != nil {
+				fmt.Println(err)
+				return err
 			}
 		}
 	}

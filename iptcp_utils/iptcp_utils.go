@@ -141,18 +141,3 @@ func TCPFieldsToString(hdr *header.TCPFields) string {
 	return fmt.Sprintf("{SrcPort:%d DstPort:%d, SeqNum:%d AckNum:%d DataOffset:%d Flags:%s WindowSize:%d Checksum:%x UrgentPointer:%d}",
 		hdr.SrcPort, hdr.DstPort, hdr.SeqNum, hdr.AckNum, hdr.DataOffset, TCPFlagsAsString(hdr.Flags), hdr.WindowSize, hdr.Checksum, hdr.UrgentPointer)
 }
-
-func CalculateRemainingSendBufSpace(LBW int32, UNA int32) int {
-	if LBW < 0 {
-		return BUFFER_SIZE
-	} else if UNA > LBW {
-		return BUFFER_SIZE
-	} else {
-		return int(BUFFER_SIZE - (LBW - UNA) - 1)
-	}
-}
-
-func CalculateOccupiedRecvBufSpace(LBR int32, NXT uint32) int32 {
-	// assumption that NXT will always be > LBR
-	return (int32(NXT) - LBR - 1)
-}

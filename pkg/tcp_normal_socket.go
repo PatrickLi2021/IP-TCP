@@ -1,15 +1,13 @@
 package protocol
 
 import (
-	"fmt"
 	"io"
-	tcp_utils "tcp-tcp-team-pa/iptcp_utils"
 
 	"github.com/google/netstack/tcpip/header"
 )
 
 const (
-	maxPayloadSize = 10 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 5 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
@@ -32,9 +30,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		}
 
 		// Calculate how much data we can read
-		bytesAvailable := uint32(tcp_utils.CalculateOccupiedRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT))
-		fmt.Println("In VRead, remaining space in rec buf = ")
-		fmt.Println(bytesAvailable)
+		bytesAvailable := uint32(tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace())
 		bytesToRead := min(bytesAvailable, maxBytes)
 
 		lbr := tcpConn.RecvBuf.LBR
@@ -72,15 +68,13 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
 	bytesToWrite := len(data)
-	fmt.Println("VWrite, len of data =")
-	fmt.Println(len(data))
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
-		remainingSpace := tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)
+		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
-			remainingSpace = tcp_utils.CalculateRemainingSendBufSpace(tcpConn.SendBuf.LBW, tcpConn.SendBuf.UNA)
+			remainingSpace = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		}
 
 		// Determine how many bytes to actually write into the send buffer
@@ -115,7 +109,7 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.SendBuf.NXT += 1
 			}
 			tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-			tcpConn.SeqNum += uint32(bytesToSend)
+			tcpConn.SeqNum += uint32(payloadSize)
 			tcpConn.TotalBytesSent += uint32(payloadSize)
 			bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		}

@@ -23,3 +23,18 @@ type TCPRecvBuf struct {
 
 // On the receiving side, as you get packet events, you advance the NXT pointer
 // Data between LBR and NXT represents data that has not been read/removed, but has been received in order
+
+func (sendBuf *TCPSendBuf) CalculateRemainingSendBufSpace() int {
+	LBW := sendBuf.LBW
+	UNA := sendBuf.UNA
+	if LBW < 0 || UNA > LBW {
+		return BUFFER_SIZE
+	} else {
+		return int(BUFFER_SIZE - (LBW - UNA) - 1)
+	}
+}
+
+func (recBuf *TCPRecvBuf) CalculateOccupiedRecvBufSpace() int32 {
+	// assumption that NXT will always be > LBR
+	return (int32(recBuf.NXT) - recBuf.LBR - 1)
+}

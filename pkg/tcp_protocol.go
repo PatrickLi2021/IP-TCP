@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
+	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
@@ -153,7 +154,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			
 			if (len(tcpPayload) > 0) {
 				// Calculate remaining space in buffer
-				remainingSpace := BUFFER_SIZE - iptcp_utils.CalculateOccupiedRecvBufSpace(tcpConn.RecvBuf.LBR, tcpConn.RecvBuf.NXT)
+				remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 				if len(tcpPayload) > int(remainingSpace) {
 					// TODO
 					fmt.Println("Data received is larger than remaining space in receive buffer")
@@ -169,7 +170,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					if len(tcpPayload) > 0 {
 						tcpConn.CurWindow -= uint16(len(tcpPayload))
 						fmt.Println("in handler, sending ack back")
-						tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpHdr.SeqNum+uint32(len(tcpPayload)), tcpConn.CurWindow)
+						tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
+						tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 					}
 					// Send signal that bytes are now in receive buffer
 					// tcpConn.RecvSpaceOpen <- true
@@ -206,11 +208,11 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 
 func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn) {
 	ACK := (header.AckNum - tcpConn.ISN)
-
 	if (tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT + 1) {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
+		fmt.Println("IN HANDLE ACK, UNA = " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
 
 	} else {
 		// invalid ack number
