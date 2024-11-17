@@ -204,7 +204,7 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-
+		tcpConn.SendSpaceOpen <- true
 	} else {
 		// invalid ack number
 		return
