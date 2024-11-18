@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
+	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
@@ -77,6 +78,7 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 }
 
 func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
+	fmt.Println("INSIDE TCP HANDLER")
 	// Retrieve the IP header and IP payload (which contains TCP header and TCP payload)
 	ipHdr := packet.Header
 	tcpHeaderAndData := packet.Payload
@@ -162,6 +164,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					if len(tcpPayload) > 0 {
 						tcpConn.CurWindow -= uint16(len(tcpPayload))
 						tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
+						fmt.Println("sending an ack back")
 						tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 					}
 					// Send signal that bytes are now in receive buffer
@@ -205,9 +208,12 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		// tcpConn.ACK = header.SeqNum
 		prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		if (prevSpace == 0) {
+		fmt.Println("Here is my new UNA pointer: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
+		if prevSpace > 0 {
+			fmt.Println("In prev space = 0")
 			tcpConn.SendSpaceOpen <- true
 		}
+		fmt.Println("DOne with if statement in handle ack")
 	} else {
 		// invalid ack number
 		return

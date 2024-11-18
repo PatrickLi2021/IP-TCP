@@ -117,7 +117,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		// 	fmt.Println("bytes written = " + strconv.Itoa(bytesWritten))
 		// 	fmt.Println("bytes sent = " + strconv.Itoa(bytesSent))
 		// }
-		
+
 	}
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
