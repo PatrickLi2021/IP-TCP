@@ -105,7 +105,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
-		if (buf_space <= 0) {
+		if buf_space <= 0 {
 			<-tcpConn.SendSpaceOpen
 		}
 		data_len := min(buf_space, fileSize-bytesSent)
@@ -144,7 +144,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 22 {
+	for bytesReceived < 60 {
 		// Calculate how much data can be read in
 		availableSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		fmt.Println("Here is the available space in the receive buffer: " + strconv.Itoa(int(availableSpace)))
