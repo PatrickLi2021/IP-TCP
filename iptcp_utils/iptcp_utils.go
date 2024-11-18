@@ -14,7 +14,7 @@ const (
 	TcpPseudoHeaderLen   = 12
 	IpProtoTcp           = header.TCPProtocolNumber
 	MaxVirtualPacketSize = 1400
-	BUFFER_SIZE          = 10
+	BUFFER_SIZE          = 65535
 )
 
 // Build a TCPFields struct from the TCP byte array

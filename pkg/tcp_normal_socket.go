@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	maxPayloadSize = 3 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 1360 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
@@ -77,9 +77,9 @@ func (tcpConn *TCPConn) WatchRecvBuf() {
 	lbr := tcpConn.RecvBuf.LBR
 	// Indicates that there's space in receive buffer
 	if int32(nxt)-lbr > 1 {
-		fmt.Println("Suarez is blocking, help")
+
 		tcpConn.RecvBufferHasData <- true
-		fmt.Println("Suarez is free")
+
 	}
 }
 

@@ -100,9 +100,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	fileSize := int(fileInfo.Size())
 
 	// Block until the connection is fully established before we call sendSegment()
-	fmt.Println("Ronaldo is blocking, help")
 	<-tcpConn.SfRfEstablished
-	fmt.Println("Ronaldo is free")
 	go tcpConn.SendSegment()
 
 	for bytesSent < fileSize {

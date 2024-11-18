@@ -109,7 +109,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
 
 	if normal_exists {
-		fmt.Println("inside normal exists")
 		switch tcpConn.State {
 		case "SYN_SENT":
 			if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) {
@@ -227,9 +226,7 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
 		if prevSpace == 0 {
-			fmt.Println("In prev space = 0")
 			tcpConn.SendSpaceOpen <- true
-			fmt.Println("done sending handle ack")
 		}
 		fmt.Println("New UNA: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
 		fmt.Println("DOne with if statement in handle ack")
@@ -309,7 +306,14 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 				tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 			}
 			tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-			go tcpConn.WatchRecvBuf()
+
+			if tcpConn.RecvBuf.Waiting && !tcpConn.RecvBuf.ChanSent {
+				tcpConn.RecvBuf.ChanSent = true
+				fmt.Println("TCP Handler, sending thru recv buf chan")
+				tcpConn.RecvBufferHasData <- true
+				tcpConn.RecvBuf.ChanSent = false
+				fmt.Println("TCP Handler, DONE sending thru recv buf chan")
+			}
 
 			// Send an ACK back
 			if len(tcpPayload) > 0 && tcpConn.State == "ESTABLISHED" {
