@@ -104,11 +104,16 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	go tcpConn.SendSegment()
 
 	for bytesSent < fileSize {
+
+		fmt.Println("SF LOOP")
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		if buf_space <= 0 {
+			fmt.Println("BUF SPACE CHAN")
 			<-tcpConn.SendSpaceOpen
+			fmt.Println("DONE BUF SPACE CHAN")
 		}
+		buf_space = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		data_len := min(buf_space, fileSize-bytesSent)
 		data := make([]byte, data_len)
 		_, err = file.Read(data)
@@ -117,13 +122,15 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 			return err
 		}
 		// Call VWrite()
+		fmt.Println("in sf, calling vwrite")
 		bytesWritten, _ := tcpConn.VWrite(data)
+		fmt.Println("in sf, done calling vwrite")
 		bytesSent += bytesWritten
 		// if (bytesWritten != 0) {
 		// 	fmt.Println("bytes written = " + strconv.Itoa(bytesWritten))
 		// 	fmt.Println("bytes sent = " + strconv.Itoa(bytesSent))
 		// }
-
+		fmt.Println("DONE SF LOOP")
 	}
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
@@ -147,11 +154,20 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	bytesReceived := 0
 	for bytesReceived < 574 {
 		// Calculate how much data can be read in
-		availableSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		if toRead <= 0 {
+			fmt.Println("waiting for recv buffer chan has data")
+			<-tcpConn.RecvBufferHasData // Block until data is available
+			// tcpConn.RecvBuf.freeSpace.Wait()
+			toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+			fmt.Println("got the recv buffer has data chan, to read = " + strconv.Itoa(int(toRead)))
+		}
+		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		// fmt.Println("Here is the available space in the receive buffer: " + strconv.Itoa(int(availableSpace)))
 		fmt.Println("CALLING VREAD")
-		buf := make([]byte, availableSpace)
-		n, err := tcpConn.VRead(buf, uint32(availableSpace))
+		buf := make([]byte, toRead)
+		fmt.Println("TO READ = " + strconv.Itoa(int(toRead)))
+		n, err := tcpConn.VRead(buf, uint32(toRead))
 		fmt.Println("DONE VREAD")
 		// fmt.Println("Here is how many bytes we got from VRead: " + strconv.Itoa(int(n)))
 		if err != nil {

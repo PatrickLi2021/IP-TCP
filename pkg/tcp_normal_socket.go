@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/google/netstack/tcpip/header"
 )
@@ -25,14 +26,12 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 			}
 			return 0, io.EOF
 		}
+
 		// Wait if there's no data available in the receive buffer
 		if tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace() == 0 {
-			fmt.Println("waiting for recv buffer chan has data")
+			fmt.Println("VREAD waiting for recv buffer chan has data")
 			<-tcpConn.RecvBufferHasData // Block until data is available
-			tcpConn.RecvBuf.Waiting = false
-			// tcpConn.RecvBuf.freeSpace.Wait()
-			fmt.Println("got the recv buffer has data chan")
-			continue
+			fmt.Println("VReAD got the recv buffer has data chan")
 		}
 
 		// Calculate how much data we can read
@@ -40,7 +39,6 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		bytesToRead := min(bytesAvailable, maxBytes)
 
 		lbr := tcpConn.RecvBuf.LBR
-
 		for i := 0; i < int(bytesToRead); i++ {
 			lbr += 1
 			buf[i] = tcpConn.RecvBuf.Buffer[lbr%BUFFER_SIZE]
@@ -49,6 +47,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		bytesRead += int(bytesToRead)
 		tcpConn.CurWindow += uint16(bytesRead)
 	}
+	fmt.Println("RETURNED FROM VREAd")
 	return bytesRead, nil
 }
 
@@ -71,28 +70,17 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 // 	}
 // }
 
-func (tcpConn *TCPConn) WatchRecvBuf() {
-	nxt := tcpConn.RecvBuf.NXT
-	lbr := tcpConn.RecvBuf.LBR
-	// Indicates that there's space in receive buffer
-	if int32(nxt)-lbr > 1 {
-
-		tcpConn.RecvBufferHasData <- true
-
-	}
-}
-
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
+	fmt.Println("in VWrite")
 	// Track the amount of data to write
 	originalDataToSend := data
 	bytesToWrite := len(data)
 	for bytesToWrite > 0 {
-		fmt.Println("Just in VWrite")
+		fmt.Println("LOOP in VWrite")
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
-		// fmt.Println("Here is the remaining space in the sendBuf: " + strconv.Itoa(int(remainingSpace)))
 		// Wait for space to become available if the buffer is full
-		for remainingSpace <= 0 {
+		if remainingSpace <= 0 {
 			fmt.Println("blocking")
 			<-tcpConn.SendSpaceOpen
 			fmt.Println("done blocking")
@@ -101,7 +89,6 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 
 		// Determine how many bytes to actually write into the send buffer
 		toWrite := min(bytesToWrite, remainingSpace)
-		fmt.Println("Calculated ToWrite")
 		// Write data into the send buffer
 		for i := 0; i < toWrite; i++ {
 			tcpConn.SendBuf.Buffer[(int(tcpConn.SendBuf.LBW)+1+i)%BUFFER_SIZE] = data[i]
@@ -110,18 +97,15 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
 		if (len(tcpConn.SendBufferHasData) == 0) {
-			fmt.Println("CHAN SENT SENT BUF HAS DATA")
+			fmt.Println("CHAN SENT SEND BUF HAS DATA")
 			tcpConn.SendBufferHasData <- true
-			fmt.Println("DONE SENDING SEND BUF HAS DATA, len = ")
-			fmt.Println(len(tcpConn.SendBufferHasData))
+			fmt.Println("DONE SENDING SEND BUF HAS DATA")
 		}
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
-		fmt.Println("adjusted data")
-		// fmt.Println(data)
-
 	}
+	fmt.Println("returned from vwrite, len = " + strconv.Itoa((len(originalDataToSend))))
 	return len(originalDataToSend), nil
 }
 
@@ -129,8 +113,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 func (tcpConn *TCPConn) SendSegment() {
 	fmt.Println("in sendsegment function")
 	for {
-		fmt.Println("in sendsegment loop, len of chan = ")
-		fmt.Println(len(tcpConn.SendBufferHasData))
+		fmt.Println("in sendsegment loop")
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
 		fmt.Println("Read from send buffer has data")

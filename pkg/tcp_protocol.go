@@ -214,21 +214,18 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn) {
 	// moving UNA since we have ACKed some packets
 	ACK := (header.AckNum - tcpConn.ISN)
-	// fmt.Println("UNA: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
-	// fmt.Println("LBW: " + strconv.Itoa(int(tcpConn.SendBuf.LBW)))
-	// fmt.Println("NXT: " + strconv.Itoa(int(tcpConn.SendBuf.NXT)))
-	// fmt.Println(tcpConn.SendBuf.Buffer)
 
 	if tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
-		prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
+		// prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		if prevSpace == 0 && len(tcpConn.SendSpaceOpen) == 0{
+		if len(tcpConn.SendSpaceOpen) == 0{
+			fmt.Println("SENDING SPACE OPEN")
 			tcpConn.SendSpaceOpen <- true
+			fmt.Println("done sending space open")
 		}
-		// fmt.Println("New UNA: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
-		// fmt.Println("DOne with if statement in handle ack")
+
 	} else {
 		// invalid ack number
 		return
