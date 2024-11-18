@@ -97,7 +97,9 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	fileSize := int(fileInfo.Size())
 
 	// Block until the connection is fully established before we call sendSegment()
+	fmt.Println("Ronaldo is blocking, help")
 	<-tcpConn.SfRfEstablished
+	fmt.Println("Ronaldo is free")
 	go tcpConn.SendSegment()
 
 	for bytesSent < fileSize {
@@ -139,11 +141,13 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 11 {
+	for bytesReceived < 22 {
 		// Calculate how much data can be read in
 		availableSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		fmt.Println("Here is the available space in the receive buffer: " + strconv.Itoa(int(availableSpace)))
 		buf := make([]byte, availableSpace)
 		n, err := tcpConn.VRead(buf, uint32(availableSpace))
+		fmt.Println("Here is how many bytes we got from VRead: " + strconv.Itoa(int(n)))
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -156,6 +160,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 				return err
 			}
 		}
+		fmt.Println("bytesReceived: " + strconv.Itoa(int(bytesReceived)))
 	}
 	return nil
 }

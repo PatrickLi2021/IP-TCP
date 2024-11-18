@@ -3,7 +3,6 @@ package protocol
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/google/netstack/tcpip/header"
 )
@@ -72,7 +71,9 @@ func (tcpConn *TCPConn) WatchRecvBuf() {
 	lbr := tcpConn.RecvBuf.LBR
 	// Indicates that there's space in receive buffer
 	if int32(nxt)-lbr > 1 {
+		fmt.Println("Suarez is blocking, help")
 		tcpConn.RecvBufferHasData <- true
+		fmt.Println("Suarez is free")
 	}
 }
 
@@ -83,9 +84,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
-		fmt.Println("UNA: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
-		fmt.Println("LBW: " + strconv.Itoa(int(tcpConn.SendBuf.LBW)))
-		fmt.Println("Here is the remaining space in the sendBuf: " + strconv.Itoa(int(remainingSpace)))
+		// fmt.Println("Here is the remaining space in the sendBuf: " + strconv.Itoa(int(remainingSpace)))
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
@@ -102,10 +101,11 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
 		tcpConn.SendBufferHasData <- true
-		fmt.Println("Got here, able to send data now")
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
+		fmt.Println(data)
+
 	}
 	return len(originalDataToSend), nil
 }
