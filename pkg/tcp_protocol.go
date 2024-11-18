@@ -268,7 +268,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
 		SendSpaceOpen:     make(chan bool),
-		RecvBufferHasData: make(chan bool),
+		RecvBufferHasData: make(chan bool, 1),
 		SfRfEstablished:   make(chan bool),
 		SendBufferHasData: make(chan bool),
 		CurWindow:         BUFFER_SIZE,
@@ -298,6 +298,13 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 		remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		if len(tcpPayload) > int(remainingSpace) {
 			// TODO - should we ever get a payload that is bigger than current rec window?
+			if len(tcpConn.RecvBufferHasData) == 0 {
+				tcpConn.RecvBuf.ChanSent = true
+				fmt.Println("2 sending thru recv buf chan")
+				tcpConn.RecvBufferHasData <- true
+				tcpConn.RecvBuf.ChanSent = false
+				fmt.Println("2 DONE sending thru recv buf chan")
+			}
 			fmt.Println("Data received is larger than remaining space in receive buffer")
 		} else {
 			// Copy data into receive buffer
@@ -307,7 +314,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 			}
 			tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 
-			if tcpConn.RecvBuf.Waiting && !tcpConn.RecvBuf.ChanSent {
+			if len(tcpConn.RecvBufferHasData) == 0 {
 				tcpConn.RecvBuf.ChanSent = true
 				fmt.Println("TCP Handler, sending thru recv buf chan")
 				tcpConn.RecvBufferHasData <- true

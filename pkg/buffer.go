@@ -16,7 +16,7 @@ type TCPRecvBuf struct {
 	LBR    int32  // Represents the last byte read (updated by app)
 	NXT    uint32 // Represents how much data we've received (next byte we expect to receive)
 	// NXT is updated by your TCP stack (internal packet events)
-	Waiting bool
+	Waiting  bool
 	ChanSent bool
 }
 

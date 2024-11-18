@@ -148,10 +148,12 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	for bytesReceived < 574 {
 		// Calculate how much data can be read in
 		availableSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-		fmt.Println("Here is the available space in the receive buffer: " + strconv.Itoa(int(availableSpace)))
+		// fmt.Println("Here is the available space in the receive buffer: " + strconv.Itoa(int(availableSpace)))
+		fmt.Println("CALLING VREAD")
 		buf := make([]byte, availableSpace)
 		n, err := tcpConn.VRead(buf, uint32(availableSpace))
-		fmt.Println("Here is how many bytes we got from VRead: " + strconv.Itoa(int(n)))
+		fmt.Println("DONE VREAD")
+		// fmt.Println("Here is how many bytes we got from VRead: " + strconv.Itoa(int(n)))
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -164,7 +166,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 				return err
 			}
 		}
-		fmt.Println("bytesReceived: " + strconv.Itoa(int(bytesReceived)))
+		// fmt.Println("bytesReceived: " + strconv.Itoa(int(bytesReceived)))
 	}
 	return nil
 }
