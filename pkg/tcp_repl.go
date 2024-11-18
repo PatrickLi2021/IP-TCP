@@ -37,11 +37,12 @@ func (tcpStack *TCPStack) ACommand(port uint16) {
 	}
 	fmt.Println("Created listen socket")
 	for {
-		_, err := listenConn.VAccept()
+		tcpConn, err := listenConn.VAccept()
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
+		go tcpConn.SendSegment()
 		fmt.Println("listen conn created")
 	}
 }

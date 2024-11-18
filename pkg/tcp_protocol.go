@@ -158,7 +158,16 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 						tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 					}
 					tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-					go tcpConn.WatchRecvBuf()
+					
+					// tcpConn.RecvBuf.freeSpace.Broadcast()
+					// tcpConn.WatchRecvBuf()
+					if (tcpConn.RecvBuf.Waiting && !tcpConn.RecvBuf.ChanSent) {
+						tcpConn.RecvBuf.ChanSent = true
+						fmt.Println("TCP Handler, sending thru recv buf chan")
+						tcpConn.RecvBufferHasData <- true
+						tcpConn.RecvBuf.ChanSent = false
+						fmt.Println("TCP Handler, DONE sending thru recv buf chan")
+					}
 
 					// Send an ACK back
 					if len(tcpPayload) > 0 {
@@ -242,6 +251,8 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		Buffer: make([]byte, BUFFER_SIZE),
 		NXT:    0,
 		LBR:    -1,
+		Waiting: false,
+		ChanSent: false,
 	}
 	tcpConn := &TCPConn{
 		ID:                tcpStack.NextSocketID,

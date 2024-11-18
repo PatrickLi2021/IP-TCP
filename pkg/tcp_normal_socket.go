@@ -26,7 +26,12 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		}
 		// Wait if there's no data available in the receive buffer
 		if tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace() == 0 {
+			tcpConn.RecvBuf.Waiting = true
+			fmt.Println("waiting for recv buffer chan has data")
 			<-tcpConn.RecvBufferHasData // Block until data is available
+			tcpConn.RecvBuf.Waiting = false
+			// tcpConn.RecvBuf.freeSpace.Wait()
+			fmt.Println("got the recv buffer has data chan")
 			continue
 		}
 
