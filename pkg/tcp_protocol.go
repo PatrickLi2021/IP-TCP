@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
-	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
 
@@ -225,11 +224,11 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		// tcpConn.ACK = header.SeqNum
 		prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		if prevSpace == 0 {
+		if prevSpace == 0 && len(tcpConn.SendSpaceOpen) == 0{
 			tcpConn.SendSpaceOpen <- true
 		}
-		fmt.Println("New UNA: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
-		fmt.Println("DOne with if statement in handle ack")
+		// fmt.Println("New UNA: " + strconv.Itoa(int(tcpConn.SendBuf.UNA)))
+		// fmt.Println("DOne with if statement in handle ack")
 	} else {
 		// invalid ack number
 		return
@@ -267,10 +266,10 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		ISN:               uint32(seqNum),
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
-		SendSpaceOpen:     make(chan bool),
+		SendSpaceOpen:     make(chan bool, 1),
 		RecvBufferHasData: make(chan bool, 1),
 		SfRfEstablished:   make(chan bool),
-		SendBufferHasData: make(chan bool),
+		SendBufferHasData: make(chan bool, 1),
 		CurWindow:         BUFFER_SIZE,
 		ACK:               tcpHdr.SeqNum + 1,
 	}

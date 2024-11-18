@@ -109,7 +109,12 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Update the LBW pointer after writing data
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
-		tcpConn.SendBufferHasData <- true
+		if (len(tcpConn.SendBufferHasData) == 0) {
+			fmt.Println("CHAN SENT SENT BUF HAS DATA")
+			tcpConn.SendBufferHasData <- true
+			fmt.Println("DONE SENDING SEND BUF HAS DATA, len = ")
+			fmt.Println(len(tcpConn.SendBufferHasData))
+		}
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
@@ -124,7 +129,8 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 func (tcpConn *TCPConn) SendSegment() {
 	fmt.Println("in sendsegment function")
 	for {
-		fmt.Println("in sendsegment loop")
+		fmt.Println("in sendsegment loop, len of chan = ")
+		fmt.Println(len(tcpConn.SendBufferHasData))
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
 		fmt.Println("Read from send buffer has data")

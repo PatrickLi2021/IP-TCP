@@ -74,9 +74,9 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
 		SfRfEstablished:   make(chan bool),
-		SendBufferHasData: make(chan bool),
+		SendBufferHasData: make(chan bool, 1),
 		RecvBufferHasData: make(chan bool, 1),
-		SendSpaceOpen:     make(chan bool),
+		SendSpaceOpen:     make(chan bool, 1),
 		CurWindow:         BUFFER_SIZE,
 	}
 	fourTuple := &FourTuple{
