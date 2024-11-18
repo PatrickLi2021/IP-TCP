@@ -87,7 +87,9 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// fmt.Println("Here is the remaining space in the sendBuf: " + strconv.Itoa(int(remainingSpace)))
 		// Wait for space to become available if the buffer is full
 		for remainingSpace <= 0 {
+			fmt.Println("blocking")
 			<-tcpConn.SendSpaceOpen
+			fmt.Println("done blocking")
 			remainingSpace = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		}
 
@@ -104,7 +106,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
-		fmt.Println(data)
+		// fmt.Println(data)
 
 	}
 	return len(originalDataToSend), nil
