@@ -10,7 +10,7 @@ import (
 func (tcpStack *TCPStack) ListSockets() {
 	fmt.Println("SID  LAddr           LPort      RAddr          RPort    Status")
 	// Loop through all sockets on this node
-	for i := 0; i < int(tcpStack.NextSocketID); i++ {
+	for i := 0; i < int(len(tcpStack.ListenTable)+len(tcpStack.ConnectionsTable)); i++ {
 		fourTuple := tcpStack.SocketIDToConn[uint32(i)]
 		tcpConn, connExists := tcpStack.ConnectionsTable[*fourTuple]
 		if connExists {
@@ -18,9 +18,11 @@ func (tcpStack *TCPStack) ListSockets() {
 			fmt.Println(strconv.Itoa(int(tcpConn.ID)) + "    " + fourTuple.srcAddr.String() + "        " + strconv.Itoa(int(fourTuple.srcPort)) + "      " + fourTuple.remoteAddr.String() + "       " + strconv.Itoa(int(fourTuple.remotePort)) + "     " + tcpConn.State)
 		} else {
 			listener, exists := tcpStack.ListenTable[fourTuple.srcPort]
-			listener.ID = uint16(i)
+			if exists {
+				listener.ID = uint16(i)
+			}
 			if !exists {
-				fmt.Println("Error: socket could not be found in either table")
+				fmt.Println()
 				return
 			} else {
 				fmt.Println(strconv.Itoa(int(listener.ID)) + "    " + fourTuple.srcAddr.String() + "        " + strconv.Itoa(int(fourTuple.srcPort)) + "      " + fourTuple.remoteAddr.String() + "       " + strconv.Itoa(int(fourTuple.remotePort)) + "     " + listener.State)
@@ -145,7 +147,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 60 {
+	for bytesReceived < 574 {
 		// Calculate how much data can be read in
 		availableSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		fmt.Println("Here is the available space in the receive buffer: " + strconv.Itoa(int(availableSpace)))
@@ -165,6 +167,19 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 			}
 		}
 		fmt.Println("bytesReceived: " + strconv.Itoa(int(bytesReceived)))
+	}
+	return nil
+}
+
+func (tcpStack *TCPStack) CloseCommand(socketId uint16) error {
+	for _, tcpConn := range tcpStack.ConnectionsTable {
+		// Find the TCPConn with the given ID and close it
+		if tcpConn.ID == socketId {
+			err := tcpConn.VClose()
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
+	"time"
 
 	ipv4header "github.com/brown-csci1680/iptcp-headers"
 	"github.com/google/netstack/tcpip/header"
@@ -78,7 +79,6 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 }
 
 func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
-	// fmt.Println("INSIDE TCP HANDLER")
 	// Retrieve the IP header and IP payload (which contains TCP header and TCP payload)
 	ipHdr := packet.Header
 	tcpHeaderAndData := packet.Payload
@@ -109,79 +109,83 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	listenConn, listen_exists := tcpStack.ListenTable[fourTuple.srcPort]
 
 	if normal_exists {
+		fmt.Println("inside normal exists")
+		switch tcpConn.State {
+		case "SYN_SENT":
+			if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) {
+				// TODO below
+				// if (tcpConn.SendBuf.UNA < int32(tcpHdr.AckNum) && int32(tcpHdr.AckNum) <= tcpConn.SendBuf.NXT + 1) {
+				// valid ack num
 
-		// Handshake - Received a SYN-ACK, and send an ACK back
-		if tcpHdr.Flags == (header.TCPFlagSyn|header.TCPFlagAck) && tcpConn.State == "SYN_SENT" {
-			// TODO below
-			// if (tcpConn.SendBuf.UNA < int32(tcpHdr.AckNum) && int32(tcpHdr.AckNum) <= tcpConn.SendBuf.NXT + 1) {
-			// valid ack num
+				// if ( tcpConn.SendBuf.UNA > int32(tcpConn.ISN) ) {
+				// TODO is this necessary^^? RFC 3.10.7.3
+				// updating ACK #
+				tcpConn.ACK = tcpHdr.SeqNum + 1
 
-			// if ( tcpConn.SendBuf.UNA > int32(tcpConn.ISN) ) {
-			// TODO is this necessary^^? RFC 3.10.7.3
-			// updating ACK #
-			tcpConn.ACK = tcpHdr.SeqNum + 1
+				// sending ACK back
+				err := tcpConn.sendTCP([]byte{}, uint32(header.TCPFlagAck), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				if err != nil {
+					fmt.Println("Could not sent ACK back")
+					fmt.Println(err)
+					return
+				}
 
-			// sending ACK back
-			err := tcpConn.sendTCP([]byte{}, uint32(header.TCPFlagAck), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-			if err != nil {
-				fmt.Println("Could not sent ACK back")
-				fmt.Println(err)
-				return
+				// state is now established
+				tcpConn.State = "ESTABLISHED"
+				tcpConn.SfRfEstablished <- true
+				// }
+				// }
+
+				// Handshake - received an ACK, so set state to ESTABLISHED
 			}
-
-			// state is now established
-			tcpConn.State = "ESTABLISHED"
-			tcpConn.SfRfEstablished <- true
-			// }
-			// }
-
-			// Handshake - received an ACK, so set state to ESTABLISHED
-		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "SYN_RECEIVED" {
-			tcpConn.State = "ESTABLISHED"
-
-			// signal VAccept to return
-			listenConn.ConnCreated <- tcpConn
-
-			// Finished handshake, now receiving actual data and/or ACKs
-		} else if tcpHdr.Flags == header.TCPFlagAck && tcpConn.State == "ESTABLISHED" {
-			// tcpConn.AckReceived <- tcpHdr.AckNum
-			if len(tcpPayload) > 0 {
-				// Calculate remaining space in buffer
-				remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-				if len(tcpPayload) > int(remainingSpace) {
-					// TODO - should we ever get a payload that is bigger than current rec window?
-					fmt.Println("Data received is larger than remaining space in receive buffer")
-				} else {
-					// Copy data into receive buffer
-					startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
-					for i := 0; i < len(tcpPayload); i++ {
-						tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
-					}
-					tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
-					
-					// tcpConn.RecvBuf.freeSpace.Broadcast()
-					// tcpConn.WatchRecvBuf()
-					if (tcpConn.RecvBuf.Waiting && !tcpConn.RecvBuf.ChanSent) {
-						tcpConn.RecvBuf.ChanSent = true
-						fmt.Println("TCP Handler, sending thru recv buf chan")
-						tcpConn.RecvBufferHasData <- true
-						tcpConn.RecvBuf.ChanSent = false
-						fmt.Println("TCP Handler, DONE sending thru recv buf chan")
-					}
-
+		case "SYN_RECEIVED":
+			if tcpHdr.Flags == header.TCPFlagAck {
+				tcpConn.State = "ESTABLISHED"
+				// signal VAccept to return
+				listenConn.ConnCreated <- tcpConn
+				// Finished handshake, now receiving actual data and/or ACKs
+			}
+		case "ESTABLISHED":
+			if tcpHdr.Flags == header.TCPFlagAck {
+				tcpConn.handleReceivedData(tcpPayload)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+			} else if header.TCPFlagFin == (header.TCPFlagFin & tcpHdr.Flags) {
+				// Ensure that this receiver has received all the data from the sender
+				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
+				if true {
+					tcpConn.State = "CLOSE_WAIT"
 					// Send an ACK back
-					if len(tcpPayload) > 0 {
-						tcpConn.CurWindow -= uint16(len(tcpPayload))
-						tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
-						// fmt.Println("sending an ack back")
-						tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-					}
-					// Send signal that bytes are now in receive buffer
-					// tcpConn.RecvSpaceOpen <- true
+					tcpConn.ACK = tcpHdr.SeqNum + 1
+					tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				}
 			}
-
-			tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+		case "FIN_WAIT_1":
+			if tcpHdr.Flags == header.TCPFlagAck {
+				// May need to introduce packet sequence and ack checking to make sure everything is in the correct
+				// order
+				tcpConn.State = "FIN_WAIT_2"
+				tcpStack.ConnectionsTable[fourTuple] = tcpConn
+			}
+		case "FIN_WAIT_2":
+			if tcpHdr.Flags == header.TCPFlagFin {
+				tcpStack.ConnectionsTable[fourTuple] = tcpConn
+				tcpConn.ACK = tcpHdr.SeqNum + 1
+				tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				tcpConn.State = "TIME_WAIT"
+				// Once we enter TIME_WAIT, we wait some time before we fully close this side
+				time.Sleep(2 * time.Second)
+				delete(tcpStack.ConnectionsTable, fourTuple)
+				fmt.Println("This socket is closed")
+			} else if tcpHdr.Flags == header.TCPFlagAck {
+				tcpConn.handleReceivedData(tcpPayload)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+			}
+		case "CLOSE_WAIT":
+			if tcpHdr.Flags == header.TCPFlagAck {
+				tcpConn.State = "CLOSED"
+				delete(tcpStack.ConnectionsTable, fourTuple)
+				fmt.Println("This socket is closed, and was in CLOSE_WAIT")
+			}
 		}
 		return
 
@@ -248,10 +252,10 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		Channel: make(chan bool), // TODO subject to change
 	}
 	RecvBuf := &TCPRecvBuf{
-		Buffer: make([]byte, BUFFER_SIZE),
-		NXT:    0,
-		LBR:    -1,
-		Waiting: false,
+		Buffer:   make([]byte, BUFFER_SIZE),
+		NXT:      0,
+		LBR:      -1,
+		Waiting:  false,
 		ChanSent: false,
 	}
 	tcpConn := &TCPConn{
@@ -288,4 +292,37 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 
 	return tcpConn
 
+}
+
+func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
+	// tcpConn.AckReceived <- tcpHdr.AckNum
+	if len(tcpPayload) > 0 {
+		// Calculate remaining space in buffer
+		remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		if len(tcpPayload) > int(remainingSpace) {
+			// TODO - should we ever get a payload that is bigger than current rec window?
+			fmt.Println("Data received is larger than remaining space in receive buffer")
+		} else {
+			// Copy data into receive buffer
+			startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
+			for i := 0; i < len(tcpPayload); i++ {
+				tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
+			}
+			tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+			go tcpConn.WatchRecvBuf()
+
+			// Send an ACK back
+			if len(tcpPayload) > 0 && tcpConn.State == "ESTABLISHED" {
+				tcpConn.CurWindow -= uint16(len(tcpPayload))
+				tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
+				tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			} else if len(tcpPayload) > 0 && tcpConn.State == "FIN_WAIT_2" {
+				tcpConn.CurWindow -= uint16(len(tcpPayload))
+				tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
+				tcpConn.sendTCP([]byte{}, header.TCPFlagFin, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			}
+			// Send signal that bytes are now in receive buffer
+			// tcpConn.RecvSpaceOpen <- true
+		}
+	}
 }

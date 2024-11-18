@@ -118,6 +118,7 @@ func main() {
 			<-tcpConn.SfRfEstablished
 			// thread that is woken up when there is stuff in send buf to send out
 			go tcpConn.SendSegment()
+			fmt.Println("not blocked in sendsegment")
 		} else if len(userInput) >= 5 && userInput[0:2] == "s " {
 			parts := strings.Split(userInput, " ")
 			socketID, _ := strconv.Atoi(parts[1])
@@ -141,6 +142,10 @@ func main() {
 			portInt, _ := strconv.Atoi(parts[2])
 			port := uint16(portInt)
 			tcpStack.RfCommand(filePath, port)
+		} else if len(userInput) >= 4 && userInput[0:2] == "cl" {
+			parsedUint, _ := strconv.ParseUint(userInput[3:], 10, 16)
+			socketId := uint16(parsedUint)
+			tcpStack.CloseCommand(socketId)
 		} else {
 			fmt.Println("Invalid command.")
 			continue

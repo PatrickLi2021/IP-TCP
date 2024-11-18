@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -87,6 +88,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	originalDataToSend := data
 	bytesToWrite := len(data)
 	for bytesToWrite > 0 {
+		fmt.Println("Just in VWrite")
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		// fmt.Println("Here is the remaining space in the sendBuf: " + strconv.Itoa(int(remainingSpace)))
@@ -100,6 +102,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 
 		// Determine how many bytes to actually write into the send buffer
 		toWrite := min(bytesToWrite, remainingSpace)
+		fmt.Println("Calculated ToWrite")
 		// Write data into the send buffer
 		for i := 0; i < toWrite; i++ {
 			tcpConn.SendBuf.Buffer[(int(tcpConn.SendBuf.LBW)+1+i)%BUFFER_SIZE] = data[i]
@@ -111,6 +114,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
+		fmt.Println("adjusted data")
 		// fmt.Println(data)
 
 	}
@@ -119,9 +123,12 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 
 // Monitors TCPConn's send buffer to send new data as it becomes available
 func (tcpConn *TCPConn) SendSegment() {
+	fmt.Println("in sendsegment function")
 	for {
+		fmt.Println("in sendsegment loop")
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
+		fmt.Println("Read from send buffer has data")
 		// Process the send buffer
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		for bytesToSend > 0 {
@@ -151,3 +158,22 @@ func (tcpConn *TCPConn) SendSegment() {
 // 		return bytes.Equal(tcpConn.RecvBuf.Buffer[LBR:NXT], make([]byte, BUFFER_SIZE-LBR-NXT))
 // 	}
 // }
+
+func (tcpConn *TCPConn) VClose() error {
+	// Check to see if conn is already in a closing state
+	if tcpConn.State == "CLOSED" || tcpConn.State == "TIME_WAIT" || tcpConn.State == "LAST_ACK" || tcpConn.State == "CLOSING" {
+		return nil
+	}
+	// TODO: Check to see if there is any unACK'ed data left. For now, there is no check
+	if true {
+		// If not, send FIN
+		flags := header.TCPFlagFin | header.TCPFlagAck
+		tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+		if tcpConn.State == "ESTABLISHED" {
+			tcpConn.State = "FIN_WAIT_1"
+		}
+		return nil
+	} else {
+		return errors.New("trying to close connection, but not all data has been sent and ACK'ed yet")
+	}
+}
