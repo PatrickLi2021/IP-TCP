@@ -155,7 +155,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	for bytesReceived < 574 {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-		if toRead <= 0 {
+		for toRead <= 0 {
 			fmt.Println("waiting for recv buffer chan has data")
 			<-tcpConn.RecvBufferHasData // Block until data is available
 			// tcpConn.RecvBuf.freeSpace.Wait()

@@ -37,6 +37,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		// Calculate how much data we can read
 		bytesAvailable := uint32(tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace())
 		bytesToRead := min(bytesAvailable, maxBytes)
+		fmt.Println("bytesToRead: " + strconv.Itoa(int(bytesToRead)))
 
 		lbr := tcpConn.RecvBuf.LBR
 		for i := 0; i < int(bytesToRead); i++ {
@@ -96,7 +97,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Update the LBW pointer after writing data
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
-		if (len(tcpConn.SendBufferHasData) == 0) {
+		if len(tcpConn.SendBufferHasData) == 0 {
 			fmt.Println("CHAN SENT SEND BUF HAS DATA")
 			tcpConn.SendBufferHasData <- true
 			fmt.Println("DONE SENDING SEND BUF HAS DATA")
