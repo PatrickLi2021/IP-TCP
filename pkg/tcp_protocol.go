@@ -147,7 +147,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		case "ESTABLISHED":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				tcpConn.handleReceivedData(tcpPayload)
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			} else if header.TCPFlagFin == (header.TCPFlagFin & tcpHdr.Flags) {
 				// Ensure that this receiver has received all the data from the sender
@@ -176,7 +176,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				delete(tcpStack.ConnectionsTable, fourTuple)
 				fmt.Println("This socket is closed")
 			} else if tcpHdr.Flags == header.TCPFlagAck {
-				tcpConn.handleReceivedData(tcpPayload)
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
 		// Other party has initiated close, but we can still receive data (and should send ACKs back)
@@ -232,8 +232,7 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	if tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
-		// prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
-		tcpConn.SendBuf.UNA = int32(ACK - 1)
+		tcpConn.SendBuf.UNA = int32(ACK)
 		fmt.Println("IN HANDLE ACK?")
 		if len(tcpConn.SendSpaceOpen) == 0 {
 			fmt.Println("SENDING SPACE OPEN")
@@ -303,7 +302,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 
 }
 
-func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
+func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
 	// tcpConn.AckReceived <- tcpHdr.AckNum
 	if len(tcpPayload) > 0 {
 		// Calculate remaining space in buffer
@@ -312,6 +311,11 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 		// Zero Window Probe case
 		if (int32(len(tcpPayload)) > remainingSpace) {
 			// don't read data in, until 
+			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			return
+		}
+
+		if (tcpHdr.SeqNum < tcpConn.ACK) {
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
 		}

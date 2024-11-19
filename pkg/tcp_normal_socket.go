@@ -21,6 +21,8 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	// Loop until we read some data
 	for bytesRead == 0 {
 		// If the connection is closed, return EOF if no data has been read
+		fmt.Println(tcpConn)
+		fmt.Println(tcpConn.State)
 		if tcpConn.State == "CLOSED" {
 			if bytesRead > 0 {
 				return bytesRead, nil
@@ -128,7 +130,11 @@ func (tcpConn *TCPConn) SendSegment() {
 			// Zero-Window Probing
 			if tcpConn.ReceiverWin == 0 {
 				tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
+				fmt.Println("RETURNED FROM ZWP")
 				tcpConn.SendBuf.NXT += 1
+				tcpConn.SeqNum += 1
+				bytesToSend -= 1
+				fmt.Println("bytes to send = " + strconv.Itoa(int(bytesToSend)))
 			}
 			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin))
 			payloadBuf := make([]byte, payloadSize)
@@ -137,6 +143,7 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.SendBuf.NXT += 1
 			}
 			tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			fmt.Println("SENT BYTE")
 			tcpConn.SeqNum += uint32(payloadSize)
 			tcpConn.TotalBytesSent += uint32(payloadSize)
 			bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
@@ -150,7 +157,7 @@ func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		// Wait some time before sending another probe
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Second) // TODO: change
 	}
 }
 
