@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/google/netstack/tcpip/header"
 )
@@ -98,7 +99,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Update the LBW pointer after writing data
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
-		if len(tcpConn.SendBufferHasData) == 0 {
+		if len(tcpConn.SendBufferHasData) == 0 && toWrite != 0 {
 			fmt.Println("CHAN SENT SEND BUF HAS DATA")
 			tcpConn.SendBufferHasData <- true
 			fmt.Println("DONE SENDING SEND BUF HAS DATA")
@@ -119,10 +120,16 @@ func (tcpConn *TCPConn) SendSegment() {
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
 		fmt.Println("Read from send buffer has data")
-		// Process the send buffer
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
+		// We continue sending, either for normal data or for ZWP
 		for bytesToSend > 0 {
-			payloadSize := min(bytesToSend, maxPayloadSize)
+
+			// Zero-Window Probing
+			if tcpConn.ReceiverWin == 0 {
+				tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
+				tcpConn.SendBuf.NXT += 1
+			}
+			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin))
 			payloadBuf := make([]byte, payloadSize)
 			for i := 0; i < int(payloadSize); i++ {
 				payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
@@ -133,6 +140,16 @@ func (tcpConn *TCPConn) SendSegment() {
 			tcpConn.TotalBytesSent += uint32(payloadSize)
 			bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		}
+	}
+}
+
+func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
+	for tcpConn.ReceiverWin < maxPayloadSize {
+		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
+		probePayload := []byte{nextByte}
+		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+		// Wait some time before sending another probe
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

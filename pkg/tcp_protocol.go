@@ -49,6 +49,7 @@ type TCPConn struct {
 	AckReceived       chan uint32
 	CurWindow         uint16
 	TotalBytesSent    uint32
+	ReceiverWin       uint32
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -219,6 +220,8 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	// moving UNA since we have ACKed some packets
 	ACK := (header.AckNum - tcpConn.ISN)
 
+	tcpConn.ReceiverWin = uint32(header.WindowSize)
+
 	if tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
@@ -273,6 +276,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		SendBufferHasData: make(chan bool, 1),
 		CurWindow:         BUFFER_SIZE,
 		ACK:               tcpHdr.SeqNum + 1,
+		ReceiverWin:       BUFFER_SIZE,
 	}
 
 	// Add the new normal socket to tcp stack's connections table
@@ -295,9 +299,17 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 	// tcpConn.AckReceived <- tcpHdr.AckNum
 	if len(tcpPayload) > 0 {
 		// Calculate remaining space in buffer
-		// remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		// if len(tcpPayload) > int(remainingSpace) {
 		// 	// TODO - should we ever get a payload that is bigger than current rec window?
+
+		// Received zero-window probe payload
+		if remainingSpace < maxPayloadSize {
+			tcpConn.CurWindow = uint16(remainingSpace)
+			// Send ACK back for zero-window probing
+			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			return
+		}
 		if len(tcpConn.RecvBufferHasData) == 0 {
 			tcpConn.RecvBuf.ChanSent = true
 			fmt.Println("2 sending thru recv buf chan")
