@@ -122,8 +122,8 @@ func (tcpConn *TCPConn) SendSegment() {
 		fmt.Println("in sendsegment loop")
 		// Block until new data is available in the send buffer
 		<-tcpConn.SendBufferHasData
-		fmt.Println("Read from send buffer has data")
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
+		fmt.Println("Read from send buffer has data, bytes to send = " + strconv.Itoa(int(bytesToSend)))
 		// We continue sending, either for normal data or for ZWP
 		for bytesToSend > 0 {
 
@@ -140,6 +140,7 @@ func (tcpConn *TCPConn) SendSegment() {
 			payloadBuf := make([]byte, payloadSize)
 			for i := 0; i < int(payloadSize); i++ {
 				payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
+				fmt.Println("payload = " + string(payloadBuf[i]))
 				tcpConn.SendBuf.NXT += 1
 			}
 			tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -157,7 +158,7 @@ func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		// Wait some time before sending another probe
-		time.Sleep(10 * time.Second) // TODO: change
+		time.Sleep(1 * time.Second) // TODO: change
 	}
 }
 
