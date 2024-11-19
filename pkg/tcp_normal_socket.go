@@ -79,6 +79,7 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	for bytesToWrite > 0 {
 		fmt.Println("LOOP in VWrite")
 		// Calculate remaining space in the send buffer
+		fmt.Println(tcpConn)
 		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		// Wait for space to become available if the buffer is full
 		if remainingSpace <= 0 {
@@ -160,6 +161,9 @@ func (tcpConn *TCPConn) VClose() error {
 		tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		if tcpConn.State == "ESTABLISHED" {
 			tcpConn.State = "FIN_WAIT_1"
+			tcpConn.SeqNum += 1
+		} else if tcpConn.State == "CLOSE_WAIT" {
+			tcpConn.State = "LAST_ACK"
 		}
 		return nil
 	} else {
