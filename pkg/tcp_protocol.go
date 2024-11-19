@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
-	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
 
@@ -229,15 +228,12 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		return
 	}
 
-	if tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
+	if tcpConn.SendBuf.UNA + 1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
-		tcpConn.SendBuf.UNA = int32(ACK)
-		fmt.Println("IN HANDLE ACK?")
+		tcpConn.SendBuf.UNA = int32(ACK-1)
 		if len(tcpConn.SendSpaceOpen) == 0 {
-			fmt.Println("SENDING SPACE OPEN")
 			tcpConn.SendSpaceOpen <- true
-			fmt.Println("done sending space open")
 		}
 
 	} else {
@@ -321,11 +317,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 		}
 
 		if len(tcpConn.RecvBufferHasData) == 0 {
-			tcpConn.RecvBuf.ChanSent = true
-			fmt.Println("2 sending thru recv buf chan")
 			tcpConn.RecvBufferHasData <- true
-			tcpConn.RecvBuf.ChanSent = false
-			fmt.Println("2 DONE sending thru recv buf chan")
 		}
 		// 	fmt.Println("Data received is larger than remaining space in receive buffer")
 		// } else {
@@ -337,17 +329,12 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 		tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 
 		if len(tcpConn.RecvBufferHasData) == 0 {
-			tcpConn.RecvBuf.ChanSent = true
-			fmt.Println("TCP Handler, sending thru recv buf chan")
 			tcpConn.RecvBufferHasData <- true
-			tcpConn.RecvBuf.ChanSent = false
-			fmt.Println("TCP Handler, DONE sending thru recv buf chan")
 		}
 
 		// Send an ACK back
 		if len(tcpPayload) > 0 {
 			tcpConn.CurWindow -= uint16(len(tcpPayload))
-			fmt.Println("SENDING ACK BACK, cur window = " + strconv.Itoa(int(tcpConn.CurWindow)))
 			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		}
