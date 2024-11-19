@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	maxPayloadSize = 3 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 5 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
@@ -48,6 +48,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		tcpConn.RecvBuf.LBR = lbr
 		bytesRead += int(bytesToRead)
 		tcpConn.CurWindow += uint16(bytesRead)
+		fmt.Println("CUR WINDOW UPDATED, cur win = " + strconv.Itoa(int(tcpConn.CurWindow)))
 	}
 	fmt.Println("RETURNED FROM VREAd")
 	return bytesRead, nil

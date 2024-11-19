@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
+	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
 
@@ -147,7 +148,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 		case "ESTABLISHED":
 			if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload)
-				tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			} else if header.TCPFlagFin == (header.TCPFlagFin & tcpHdr.Flags) {
 				// Ensure that this receiver has received all the data from the sender
 				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
@@ -176,12 +177,12 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				fmt.Println("This socket is closed")
 			} else if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload)
-				tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
 		// Other party has initiated close, but we can still receive data (and should send ACKs back)
 		case "CLOSE_WAIT":
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
-				tcpStack.HandleACK(packet, tcpHdr, tcpConn)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
 		case "LAST_ACK":
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
@@ -216,17 +217,24 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	}
 }
 
-func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn) {
+func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn, payloadLen int) {
 	// moving UNA since we have ACKed some packets
 	ACK := (header.AckNum - tcpConn.ISN)
 
+	// TODO:
 	tcpConn.ReceiverWin = uint32(header.WindowSize)
+
+	if (payloadLen > int(tcpConn.CurWindow)) {
+		// if received zero window probe, don't update UNA
+		return
+	}
 
 	if tcpConn.SendBuf.UNA < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
 		// prevSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
+		fmt.Println("IN HANDLE ACK?")
 		if len(tcpConn.SendSpaceOpen) == 0 {
 			fmt.Println("SENDING SPACE OPEN")
 			tcpConn.SendSpaceOpen <- true
@@ -234,7 +242,7 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		}
 
 	} else {
-		// invalid ack number
+		// invalid ack number, maybe duplicate
 		return
 	}
 
@@ -300,16 +308,14 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 	if len(tcpPayload) > 0 {
 		// Calculate remaining space in buffer
 		remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-		// if len(tcpPayload) > int(remainingSpace) {
-		// 	// TODO - should we ever get a payload that is bigger than current rec window?
 
-		// Received zero-window probe payload
-		if remainingSpace < maxPayloadSize {
-			tcpConn.CurWindow = uint16(remainingSpace)
-			// Send ACK back for zero-window probing
+		// Zero Window Probe case
+		if (int32(len(tcpPayload)) > remainingSpace) {
+			// don't read data in, until 
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
 		}
+
 		if len(tcpConn.RecvBufferHasData) == 0 {
 			tcpConn.RecvBuf.ChanSent = true
 			fmt.Println("2 sending thru recv buf chan")
@@ -337,6 +343,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte) {
 		// Send an ACK back
 		if len(tcpPayload) > 0 {
 			tcpConn.CurWindow -= uint16(len(tcpPayload))
+			fmt.Println("SENDING ACK BACK, cur window = " + strconv.Itoa(int(tcpConn.CurWindow)))
 			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		}
