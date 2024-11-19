@@ -140,7 +140,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 574 {
+	for bytesReceived < 180000 {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {

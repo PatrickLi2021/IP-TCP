@@ -2,11 +2,8 @@ package protocol
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"strconv"
 	"time"
-
 	"github.com/google/netstack/tcpip/header"
 )
 
@@ -109,27 +106,27 @@ func (tcpConn *TCPConn) SendSegment() {
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-		for bytesToSend > 0 {
+		for bytesToSend > 0 && tcpConn.ReceiverWin - bytesInFlight >= 0{
 
 			// Zero-Window Probing
-			if tcpConn.ReceiverWin - bytesInFlight <= 0 {
+			if tcpConn.ReceiverWin == 0 {
 				tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
 				tcpConn.SendBuf.NXT += 1
 				tcpConn.SeqNum += 1
-				fmt.Println("ater ZWP, seq num = " + strconv.Itoa(int(tcpConn.SeqNum)))
 				bytesToSend -= 1
 			}
 			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin) - int32(bytesInFlight))
-			payloadBuf := make([]byte, payloadSize)
-			for i := 0; i < int(payloadSize); i++ {
-				payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
-				tcpConn.SendBuf.NXT += 1
+			if (payloadSize > 0) {
+				payloadBuf := make([]byte, payloadSize)
+				for i := 0; i < int(payloadSize); i++ {
+					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
+					tcpConn.SendBuf.NXT += 1
+				}
+				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				tcpConn.SeqNum += uint32(payloadSize)
+				tcpConn.TotalBytesSent += uint32(payloadSize)
+				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1	
 			}
-			tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-			tcpConn.SeqNum += uint32(payloadSize)
-			fmt.Println("NORMAL TCP, seq num = " + strconv.Itoa(int(tcpConn.SeqNum)))
-			tcpConn.TotalBytesSent += uint32(payloadSize)
-			bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 
 			bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 		}
@@ -137,15 +134,11 @@ func (tcpConn *TCPConn) SendSegment() {
 }
 
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
-	fmt.Println("IN ZWP")
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 	for tcpConn.ReceiverWin - bytesInFlight < maxPayloadSize {
-		fmt.Println("IN ZWP LOOP")
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
 		probePayload := []byte{nextByte}
-		fmt.Println("sending TCP, seq num = " + strconv.Itoa(int(tcpConn.SeqNum)))
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-		fmt.Println("sent TCP ")
 		// Wait some time before sending another probe
 		time.Sleep(1 * time.Second) // TODO: change
 		bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)

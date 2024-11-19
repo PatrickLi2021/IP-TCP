@@ -307,11 +307,11 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 		// Zero Window Probe case
 		if (int32(len(tcpPayload)) > remainingSpace) {
 			// don't read data in, until 
+			// send ack back, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
-		}
-
-		if (tcpHdr.SeqNum < tcpConn.ACK) {
+		} else if (tcpHdr.SeqNum < tcpConn.ACK) {
+			// send ack back, duplicate ack likely, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
 		}
@@ -319,8 +319,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 		if len(tcpConn.RecvBufferHasData) == 0 {
 			tcpConn.RecvBufferHasData <- true
 		}
-		// 	fmt.Println("Data received is larger than remaining space in receive buffer")
-		// } else {
+
 		// Copy data into receive buffer
 		startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
 		for i := 0; i < len(tcpPayload); i++ {
@@ -334,6 +333,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 
 		// Send an ACK back
 		if len(tcpPayload) > 0 {
+			// normal acks back
 			tcpConn.CurWindow -= uint16(len(tcpPayload))
 			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
