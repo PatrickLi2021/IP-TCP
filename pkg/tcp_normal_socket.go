@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	maxPayloadSize = 1360 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 3 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
