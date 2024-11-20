@@ -2,8 +2,10 @@ package protocol
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"time"
+
 	"github.com/google/netstack/tcpip/header"
 )
 
@@ -46,25 +48,6 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	return bytesRead, nil
 }
 
-// func (tcpConn *TCPConn) ListenForACK() error {
-// 	for {
-// 		select {
-// 		case ackNumber := <-tcpConn.AckReceived:
-// 			// Retrieve ACK number from packet
-// 			if int32(ackNumber) > tcpConn.SendBuf.UNA {
-// 				// Move the UNA pointer and free up space in the send buffer
-// 				tcpConn.SendBuf.UNA = int32(ackNumber)
-// 				// Send signal through channel indicating that space has freed up
-// 				tcpConn.SendSpaceOpen <- true
-// 			}
-// 			return nil
-// 		default:
-// 			// Channel was empty
-// 			return errors.New("no ack number received from channel")
-// 		}
-// 	}
-// }
-
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
@@ -106,7 +89,7 @@ func (tcpConn *TCPConn) SendSegment() {
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-		for bytesToSend > 0 && tcpConn.ReceiverWin - bytesInFlight >= 0{
+		for bytesToSend > 0 && tcpConn.ReceiverWin-bytesInFlight >= 0 {
 
 			// Zero-Window Probing
 			if tcpConn.ReceiverWin == 0 {
@@ -115,17 +98,20 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.SeqNum += 1
 				bytesToSend -= 1
 			}
-			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin) - int32(bytesInFlight))
-			if (payloadSize > 0) {
+			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin)-int32(bytesInFlight))
+			if payloadSize > 0 {
 				payloadBuf := make([]byte, payloadSize)
 				for i := 0; i < int(payloadSize); i++ {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
 					tcpConn.SendBuf.NXT += 1
 				}
+				fmt.Println("Payload size")
+				fmt.Println(payloadSize)
 				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				fmt.Println("Sent the segment")
 				tcpConn.SeqNum += uint32(payloadSize)
 				tcpConn.TotalBytesSent += uint32(payloadSize)
-				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1	
+				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 			}
 
 			bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
@@ -135,7 +121,7 @@ func (tcpConn *TCPConn) SendSegment() {
 
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-	for tcpConn.ReceiverWin - bytesInFlight < maxPayloadSize {
+	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize {
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -150,9 +136,13 @@ func (tcpConn *TCPConn) VClose() error {
 	if tcpConn.State == "CLOSED" || tcpConn.State == "TIME_WAIT" || tcpConn.State == "LAST_ACK" || tcpConn.State == "CLOSING" {
 		return nil
 	}
-	// TODO: Check to see if there is any unACK'ed data left. For now, there is no check
-	if true {
-		// If not, send FIN
+	// Only send FIN if all data has been ACK'ed
+
+	// Wait to get a UNA update before closing
+	<-tcpConn.UNAUpdated
+
+	if tcpConn.SendBuf.UNA > tcpConn.SendBuf.LBW {
+		tcpConn.isClosing = true
 		flags := header.TCPFlagFin | header.TCPFlagAck
 		tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		if tcpConn.State == "ESTABLISHED" {
