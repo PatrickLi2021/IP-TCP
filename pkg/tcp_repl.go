@@ -103,8 +103,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	<-tcpConn.SfRfEstablished
 	go tcpConn.SendSegment()
 
-	// We want to continue sending as long as there are more bytes in our file AND conn is not closed
-	for bytesSent < fileSize && !tcpConn.isClosing {
+	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		if buf_space <= 0 {
@@ -122,14 +121,8 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		bytesWritten, _ := tcpConn.VWrite(data)
 		bytesSent += bytesWritten
 	}
-	fmt.Println("Sent " + strconv.Itoa(fileSize) + " bytes")
-
-	// Close socket after sending file
-	// err = tcpConn.VClose()
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return err
-	// }
+	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
+	fmt.Println("DONE SF")
 	return nil
 }
 
@@ -148,23 +141,13 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-
-outerLoop:
-	// If the conn is not closed or there's still data to read from receive buffer
-	for !tcpConn.isClosing {
+	for bytesReceived < 202810 {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-
 		for toRead <= 0 {
-			select {
-			case <-tcpConn.RecvBufferHasData:
-				// Received signal that data is available, update toRead
-				toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-
-			case <-tcpConn.InCloseWait:
-				// Connection entered CLOSE_WAIT state, exit the outer loop
-				break outerLoop
-			}
+			<-tcpConn.RecvBufferHasData // Block until data is available
+			// tcpConn.RecvBuf.freeSpace.Wait()
+			toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		}
 		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		buf := make([]byte, toRead)
@@ -181,8 +164,9 @@ outerLoop:
 				return err
 			}
 		}
+		fmt.Println("RF BYTES RECEIVED = " + strconv.Itoa(bytesReceived))
 	}
-	fmt.Println("Received " + strconv.Itoa(bytesReceived) + " bytes")
+	fmt.Println("RF DONE")
 	return nil
 }
 

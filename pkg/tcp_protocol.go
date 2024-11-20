@@ -50,9 +50,6 @@ type TCPConn struct {
 	CurWindow         uint16
 	TotalBytesSent    uint32
 	ReceiverWin       uint32
-	isClosing         bool
-	UNAUpdated        chan bool
-	InCloseWait       chan bool
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -156,8 +153,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
 				if true {
 					tcpConn.State = "CLOSE_WAIT"
-					tcpConn.isClosing = true
-					tcpConn.InCloseWait <- true
 					// Send an ACK back
 					tcpConn.ACK = tcpHdr.SeqNum + 1
 					tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -222,7 +217,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 }
 
 func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn, payloadLen int) {
-	fmt.Println("In handleack")
 	// moving UNA since we have ACKed some packets
 	ACK := (header.AckNum - tcpConn.ISN)
 
@@ -230,26 +224,19 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	tcpConn.ReceiverWin = uint32(header.WindowSize)
 
 	if payloadLen > int(tcpConn.CurWindow) {
-		fmt.Println("Toodles")
 		// if received zero window probe, don't update UNA
 		return
 	}
-	fmt.Println(header.AckNum)
-	fmt.Println(ACK)
-	fmt.Println(tcpConn.SendBuf.UNA)
-	fmt.Println(tcpConn.SendBuf.NXT)
+
 	if tcpConn.SendBuf.UNA+1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		fmt.Println("Blocking here una")
-		tcpConn.UNAUpdated <- true
 		if len(tcpConn.SendSpaceOpen) == 0 {
 			tcpConn.SendSpaceOpen <- true
 		}
-		fmt.Println("Got to here phew")
+
 	} else {
-		fmt.Println("invalid duplicate")
 		// invalid ack number, maybe duplicate
 		return
 	}
@@ -293,9 +280,6 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		CurWindow:         BUFFER_SIZE,
 		ACK:               tcpHdr.SeqNum + 1,
 		ReceiverWin:       BUFFER_SIZE,
-		isClosing:         false,
-		UNAUpdated:        make(chan bool, 1),
-		InCloseWait:       make(chan bool, 1),
 	}
 
 	// Add the new normal socket to tcp stack's connections table
@@ -315,7 +299,6 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 }
 
 func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
-	fmt.Println("In handlereceived data")
 	// tcpConn.AckReceived <- tcpHdr.AckNum
 	if len(tcpPayload) > 0 {
 		// Calculate remaining space in buffer
@@ -355,5 +338,8 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		}
+		// Send signal that bytes are now in receive buffer
+		// tcpConn.RecvSpaceOpen <- true
+		// }
 	}
 }

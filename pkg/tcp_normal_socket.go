@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -47,6 +46,25 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	}
 	return bytesRead, nil
 }
+
+// func (tcpConn *TCPConn) ListenForACK() error {
+// 	for {
+// 		select {
+// 		case ackNumber := <-tcpConn.AckReceived:
+// 			// Retrieve ACK number from packet
+// 			if int32(ackNumber) > tcpConn.SendBuf.UNA {
+// 				// Move the UNA pointer and free up space in the send buffer
+// 				tcpConn.SendBuf.UNA = int32(ackNumber)
+// 				// Send signal through channel indicating that space has freed up
+// 				tcpConn.SendSpaceOpen <- true
+// 			}
+// 			return nil
+// 		default:
+// 			// Channel was empty
+// 			return errors.New("no ack number received from channel")
+// 		}
+// 	}
+// }
 
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
@@ -105,10 +123,7 @@ func (tcpConn *TCPConn) SendSegment() {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
 					tcpConn.SendBuf.NXT += 1
 				}
-				fmt.Println("Payload size")
-				fmt.Println(payloadSize)
 				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-				fmt.Println("Sent the segment")
 				tcpConn.SeqNum += uint32(payloadSize)
 				tcpConn.TotalBytesSent += uint32(payloadSize)
 				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
@@ -136,13 +151,9 @@ func (tcpConn *TCPConn) VClose() error {
 	if tcpConn.State == "CLOSED" || tcpConn.State == "TIME_WAIT" || tcpConn.State == "LAST_ACK" || tcpConn.State == "CLOSING" {
 		return nil
 	}
-	// Only send FIN if all data has been ACK'ed
-
-	// Wait to get a UNA update before closing
-	<-tcpConn.UNAUpdated
-
-	if tcpConn.SendBuf.UNA > tcpConn.SendBuf.LBW {
-		tcpConn.isClosing = true
+	// TODO: Check to see if there is any unACK'ed data left. For now, there is no check
+	if true {
+		// If not, send FIN
 		flags := header.TCPFlagFin | header.TCPFlagAck
 		tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		if tcpConn.State == "ESTABLISHED" {
