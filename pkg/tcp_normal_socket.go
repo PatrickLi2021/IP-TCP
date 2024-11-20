@@ -2,9 +2,7 @@ package protocol
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -49,18 +47,35 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	return bytesRead, nil
 }
 
+// func (tcpConn *TCPConn) ListenForACK() error {
+// 	for {
+// 		select {
+// 		case ackNumber := <-tcpConn.AckReceived:
+// 			// Retrieve ACK number from packet
+// 			if int32(ackNumber) > tcpConn.SendBuf.UNA {
+// 				// Move the UNA pointer and free up space in the send buffer
+// 				tcpConn.SendBuf.UNA = int32(ackNumber)
+// 				// Send signal through channel indicating that space has freed up
+// 				tcpConn.SendSpaceOpen <- true
+// 			}
+// 			return nil
+// 		default:
+// 			// Channel was empty
+// 			return errors.New("no ack number received from channel")
+// 		}
+// 	}
+// }
+
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
+	originalDataToSend := data
 	bytesToWrite := len(data)
-	fmt.Println("VWRITE BYTES TO WRITE = " + strconv.Itoa(int(bytesToWrite)))
-	bytesWritten := 0
 	for bytesToWrite > 0 {
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		// Wait for space to become available if the buffer is full
 		if remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
-			fmt.Println("after vwrite blocking")
 			remainingSpace = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		}
 
@@ -74,54 +89,35 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		// Update the LBW pointer after writing data
 		tcpConn.SendBuf.LBW = (tcpConn.SendBuf.LBW + int32(toWrite))
 		// Send signal that there is now new data in send buffer
-		// len(tcpConn.SendBufferHasData) == 0
 		if len(tcpConn.SendBufferHasData) == 0 && toWrite != 0 {
-			fmt.Println("vwrite sent")
 			tcpConn.SendBufferHasData <- true
-			fmt.Println("after vwrite sent")
 		}
 		// Adjust the remaining data and update data slice
 		bytesToWrite -= toWrite
-		bytesWritten += toWrite
 		data = data[toWrite:]
 	}
-	return bytesWritten, nil
+	return len(originalDataToSend), nil
 }
 
 // Monitors TCPConn's send buffer to send new data as it becomes available
 func (tcpConn *TCPConn) SendSegment() {
 	for {
 		// Block until new data is available in the send buffer
-		fmt.Println("before blocking")
 		<-tcpConn.SendBufferHasData
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
-		fmt.Println("done blocking, bytes to send = " + strconv.Itoa(int(bytesToSend)))
-		fmt.Println("rec win = " + strconv.Itoa(int(tcpConn.ReceiverWin)))
-
 		// We continue sending, either for normal data or for ZWP
-		bytesInFlight := int32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-		for bytesToSend > 0 && int32(tcpConn.ReceiverWin) - bytesInFlight >= 0{
+		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
+		for bytesToSend > 0 && tcpConn.ReceiverWin - bytesInFlight >= 0{
 
 			// Zero-Window Probing
-			// if tcpConn.ReceiverWin == 0 {
-			// 	tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
-			// 	tcpConn.SendBuf.NXT += 1
-			// 	tcpConn.SeqNum += 1
-			// 	bytesToSend -= 1
-			// }
-			if tcpConn.InZWP {
-				<-tcpConn.DoneZWP
-				fmt.Println("IN IF")
-				tcpConn.InZWP = false
+			if tcpConn.ReceiverWin == 0 {
+				tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
+				tcpConn.SendBuf.NXT += 1
+				tcpConn.SeqNum += 1
 				bytesToSend -= 1
 			}
-			bytesInFlight = int32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-			
-			fmt.Println("bytes in flight = " + strconv.Itoa(int(bytesInFlight)))
-			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin) - bytesInFlight)
-			fmt.Println("payload size = " + strconv.Itoa(int(payloadSize)))
+			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin) - int32(bytesInFlight))
 			if (payloadSize > 0) {
-				fmt.Println("sending bytes in send seg")
 				payloadBuf := make([]byte, payloadSize)
 				for i := 0; i < int(payloadSize); i++ {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
@@ -133,32 +129,21 @@ func (tcpConn *TCPConn) SendSegment() {
 				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1	
 			}
 
-			bytesInFlight = tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA
+			bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 		}
 	}
 }
 
-func (tcpConn *TCPConn) InvokeZWP() {
-	go tcpConn.ZeroWindowProbe()
-}
-
-func (tcpConn *TCPConn) ZeroWindowProbe() {
-	nxt := tcpConn.SendBuf.NXT
-	bytesInFlight := nxt - tcpConn.SendBuf.UNA
-	for int32(tcpConn.ReceiverWin) - bytesInFlight < maxPayloadSize {
+func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
+	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
+	for tcpConn.ReceiverWin - bytesInFlight < maxPayloadSize {
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		// Wait some time before sending another probe
 		time.Sleep(1 * time.Second) // TODO: change
-		bytesInFlight = nxt - tcpConn.SendBuf.UNA
+		bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 	}
-	fmt.Println("done zwp, bytes in flight = " + strconv.Itoa(int(bytesInFlight)))
-	fmt.Println("done zwp, rec win = " + strconv.Itoa(int(tcpConn.ReceiverWin)))
-	tcpConn.SendBuf.NXT += 1
-	tcpConn.SeqNum += 1
-	tcpConn.DoneZWP <- true
-	fmt.Println("returned from ZWP")
 }
 
 func (tcpConn *TCPConn) VClose() error {
