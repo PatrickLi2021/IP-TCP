@@ -1,13 +1,12 @@
 package protocol
 
-const BUFFER_SIZE = 10
+const BUFFER_SIZE = 65535
 
 type TCPSendBuf struct {
 	Buffer  []byte
 	UNA     int32 // Represents oldest un-ACKed segment (updated by TCP stack)
 	NXT     int32 // Represents data in the buffer that has been sent (updated by TCP stack)
 	LBW     int32 // Represents data written into the buffer via VWrite() (updated by app)
-	Rec_win int32
 	Channel chan bool
 }
 
@@ -17,7 +16,6 @@ type TCPRecvBuf struct {
 	NXT    uint32 // Represents how much data we've received (next byte we expect to receive)
 	// NXT is updated by your TCP stack (internal packet events)
 	Waiting  bool
-	ChanSent bool
 }
 
 // Data between NXT and LBW is data that's in the buffer but not yet sent

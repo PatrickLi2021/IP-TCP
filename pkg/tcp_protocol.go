@@ -50,6 +50,8 @@ type TCPConn struct {
 	CurWindow         uint16
 	TotalBytesSent    uint32
 	ReceiverWin       uint32
+	InZWP 						bool
+	DoneZWP						chan bool
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -223,6 +225,11 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	// TODO:
 	tcpConn.ReceiverWin = uint32(header.WindowSize)
 
+	if (tcpConn.ReceiverWin == 0 && !tcpConn.InZWP) {
+		tcpConn.InZWP = true
+		tcpConn.InvokeZWP()
+	}
+
 	if (payloadLen > int(tcpConn.CurWindow)) {
 		// if received zero window probe, don't update UNA
 		return
@@ -259,7 +266,6 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		NXT:      0,
 		LBR:      -1,
 		Waiting:  false,
-		ChanSent: false,
 	}
 	tcpConn := &TCPConn{
 		ID:                tcpStack.NextSocketID,
@@ -280,6 +286,8 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		CurWindow:         BUFFER_SIZE,
 		ACK:               tcpHdr.SeqNum + 1,
 		ReceiverWin:       BUFFER_SIZE,
+		InZWP:  					 false,
+		DoneZWP: 					 make(chan bool, 1),
 	}
 
 	// Add the new normal socket to tcp stack's connections table

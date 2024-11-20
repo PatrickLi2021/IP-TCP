@@ -121,6 +121,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		bytesWritten, _ := tcpConn.VWrite(data)
 		bytesSent += bytesWritten
 	}
+	fmt.Println("returned from SF COMMAND")
 	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
 	return nil
 }
@@ -140,7 +141,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 180000 {
+	for bytesReceived < 200300 {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
