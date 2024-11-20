@@ -216,33 +216,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	}
 }
 
-func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn, payloadLen int) {
-	// moving UNA since we have ACKed some packets
-	ACK := (header.AckNum - tcpConn.ISN)
-
-	// TODO:
-	tcpConn.ReceiverWin = uint32(header.WindowSize)
-
-	if (payloadLen > int(tcpConn.CurWindow)) {
-		// if received zero window probe, don't update UNA
-		return
-	}
-
-	if tcpConn.SendBuf.UNA + 1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
-		// valid ack number, RFC 3.4
-		// tcpConn.ACK = header.SeqNum
-		tcpConn.SendBuf.UNA = int32(ACK-1)
-		if len(tcpConn.SendSpaceOpen) == 0 {
-			tcpConn.SendSpaceOpen <- true
-		}
-
-	} else {
-		// invalid ack number, maybe duplicate
-		return
-	}
-
-}
-
 func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv4header.IPv4Header) *TCPConn {
 	// Create new normal socket + its send/rec bufs
 	// add new normal socket to tcp stack's table
@@ -301,11 +274,11 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
 	// tcpConn.AckReceived <- tcpHdr.AckNum
 	if len(tcpPayload) > 0 {
-		// Calculate remaining space in buffer
-		remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		// // Calculate remaining space in buffer
+		// remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 
 		// Zero Window Probe case
-		if (int32(len(tcpPayload)) > remainingSpace) {
+		if (uint16(len(tcpPayload)) > tcpConn.CurWindow) {
 			// don't read data in, until 
 			// send ack back, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -316,30 +289,51 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			return
 		}
 
-		if len(tcpConn.RecvBufferHasData) == 0 {
-			tcpConn.RecvBufferHasData <- true
-		}
-
 		// Copy data into receive buffer
 		startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
 		for i := 0; i < len(tcpPayload); i++ {
 			tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 		}
 		tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+		tcpConn.CurWindow -= uint16(len(tcpPayload))
+		tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
 
 		if len(tcpConn.RecvBufferHasData) == 0 {
 			tcpConn.RecvBufferHasData <- true
 		}
 
-		// Send an ACK back
-		if len(tcpPayload) > 0 {
-			// normal acks back
-			tcpConn.CurWindow -= uint16(len(tcpPayload))
-			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
-			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-		}
+		// Send a normal ACK back
+		tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+
 		// Send signal that bytes are now in receive buffer
 		// tcpConn.RecvSpaceOpen <- true
 		// }
 	}
+}
+
+func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn, payloadLen int) {
+	// moving UNA since we have ACKed some packets
+	ACK := (header.AckNum - tcpConn.ISN)
+
+	// TODO:
+	tcpConn.ReceiverWin = uint32(header.WindowSize)
+
+	if (payloadLen > int(tcpConn.CurWindow)) {
+		// if received zero window probe, don't update UNA
+		return
+	}
+
+	if tcpConn.SendBuf.UNA + 1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
+		// valid ack number, RFC 3.4
+		// tcpConn.ACK = header.SeqNum
+		tcpConn.SendBuf.UNA = int32(ACK-1)
+		if len(tcpConn.SendSpaceOpen) == 0 {
+			tcpConn.SendSpaceOpen <- true
+		}
+
+	} else {
+		// invalid ack number, maybe duplicate
+		return
+	}
+
 }
