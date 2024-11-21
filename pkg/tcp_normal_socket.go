@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	maxPayloadSize = 1360 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 3 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
@@ -140,6 +140,7 @@ func (tcpConn *TCPConn) SendSegment() {
 					AckNum:    tcpConn.ACK,
 					Data:      payloadBuf,
 					Flags:     header.TCPFlagAck,
+					NumTries:  0,
 				}
 				tcpConn.RetransmitStruct.RTQueue = append(tcpConn.RetransmitStruct.RTQueue, rtPacket)
 
@@ -171,7 +172,33 @@ func (tcpConn *TCPConn) SendSegment() {
 	}
 }
 
+func (tcpConn *TCPConn) CheckRTOTimer(rtStruct Retransmission) {
+	for {
+		select {
+		// If ticker doesn't fire within RTO, retransmit
+		case <-time.After(rtStruct.RTO):
+			if len(rtStruct.RTQueue) > 0 {
+				queueHead := rtStruct.RTQueue[0]
+				// TODO: Potentially close socket
+				if queueHead.NumTries == MAX_RETRIES {
+					rtStruct.RTQueue = rtStruct.RTQueue[1:]
+				}
+				tcpConn.sendTCP(queueHead.Data, queueHead.Flags, queueHead.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				// Increment numTries
+				queueHead.NumTries++
+				rtStruct.RTO = max(2*rtStruct.RTO, RTO_MAX)
+			}
+			// Restart retransmission timer
+			rtStruct.RTOTimer.Stop()
+			rtStruct.RTOTimer = time.NewTicker(rtStruct.RTO)
+		}
+	}
+}
+
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
+	// Stop RTO timer for all zero window probes when entering zero window probing mode
+	tcpConn.RetransmitStruct.RTOTimer.Stop()
+
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize {
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
@@ -181,6 +208,8 @@ func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 		time.Sleep(1 * time.Second) // TODO: change
 		bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 	}
+	// Restart timer
+	tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
 }
 
 func (tcpConn *TCPConn) VClose() error {

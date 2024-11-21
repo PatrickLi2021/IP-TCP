@@ -1,6 +1,6 @@
 package protocol
 
-const BUFFER_SIZE = 65535
+const BUFFER_SIZE = 10
 
 type TCPSendBuf struct {
 	Buffer  []byte

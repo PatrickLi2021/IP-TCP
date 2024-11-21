@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	RTO_MIN = 100 * time.Millisecond
-	RTO_MAX = 5 * time.Second
+	RTO_MIN     = 100 * time.Millisecond
+	RTO_MAX     = 5 * time.Second
+	MAX_RETRIES = 3
 )
 
 type FourTuple struct {
@@ -78,6 +79,7 @@ type RTPacket struct {
 	AckNum    uint32
 	Data      []byte
 	Flags     uint32
+	NumTries  uint32
 }
 
 type TCPStack struct {
@@ -175,6 +177,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			} else if header.TCPFlagFin == (header.TCPFlagFin & tcpHdr.Flags) {
 				// Ensure that this receiver has received all the data from the sender
 				// tcpConn.IsClosing = true
+				// TODO: maybe add handleRetransmission() here
 				if tcpHdr.SeqNum == tcpConn.ACK {
 					tcpConn.State = "CLOSE_WAIT"
 					// Send an ACK back
@@ -253,33 +256,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 	}
 }
 
-func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn, payloadLen int) {
-	// moving UNA since we have ACKed some packets
-	ACK := (header.AckNum - tcpConn.ISN)
-
-	// TODO:
-	tcpConn.ReceiverWin = uint32(header.WindowSize)
-
-	if payloadLen > int(tcpConn.CurWindow) {
-		// if received zero window probe, don't update UNA
-		return
-	}
-
-	if tcpConn.SendBuf.UNA+1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
-		// valid ack number, RFC 3.4
-		// tcpConn.ACK = header.SeqNum
-		tcpConn.SendBuf.UNA = int32(ACK - 1)
-		if len(tcpConn.SendSpaceOpen) == 0 {
-			tcpConn.SendSpaceOpen <- true
-		}
-
-	} else {
-		// invalid ack number, maybe duplicate
-		return
-	}
-
-}
-
 func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv4header.IPv4Header) *TCPConn {
 	// Create new normal socket + its send/rec bufs
 	// add new normal socket to tcp stack's table
@@ -300,11 +276,12 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		ChanSent: false,
 	}
 	retransmitStruct := &Retransmission{
-		SRTT:    -1 * time.Second,
-		Alpha:   0.125,
-		Beta:    0.25,
-		RTQueue: []*RTPacket{},
-		RTO:     RTO_MIN,
+		SRTT:     -1 * time.Second,
+		Alpha:    0.125,
+		Beta:     0.25,
+		RTQueue:  []*RTPacket{},
+		RTO:      RTO_MIN,
+		RTOTimer: time.NewTicker(RTO_MIN),
 	}
 
 	tcpConn := &TCPConn{
@@ -349,11 +326,11 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
 	// tcpConn.AckReceived <- tcpHdr.AckNum
 	if len(tcpPayload) > 0 {
-		// Calculate remaining space in buffer
-		remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		// // Calculate remaining space in buffer
+		// remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 
 		// Zero Window Probe case
-		if int32(len(tcpPayload)) > remainingSpace {
+		if uint16(len(tcpPayload)) > tcpConn.CurWindow {
 			// don't read data in, until
 			// send ack back, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -364,31 +341,52 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			return
 		}
 
-		if len(tcpConn.RecvBufferHasData) == 0 {
-			tcpConn.RecvBufferHasData <- true
-		}
-
 		// Copy data into receive buffer
 		startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
 		for i := 0; i < len(tcpPayload); i++ {
 			tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = tcpPayload[i]
 		}
 		tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+		tcpConn.CurWindow -= uint16(len(tcpPayload))
+		tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
 
 		if len(tcpConn.RecvBufferHasData) == 0 {
 			tcpConn.RecvBufferHasData <- true
 		}
 
-		// Send an ACK back
-		if len(tcpPayload) > 0 {
-			// normal acks back
-			tcpConn.CurWindow -= uint16(len(tcpPayload))
-			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
-			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-		}
+		// Send a normal ACK back
+		tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+
 		// Send signal that bytes are now in receive buffer
 		// tcpConn.RecvSpaceOpen <- true
 		// }
+	}
+}
+
+func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, tcpConn *TCPConn, payloadLen int) {
+	// moving UNA since we have ACKed some packets
+	ACK := (header.AckNum - tcpConn.ISN)
+
+	// TODO:
+	tcpConn.ReceiverWin = uint32(header.WindowSize)
+
+	if payloadLen > int(tcpConn.CurWindow) {
+		// if received zero window probe, don't update UNA
+		return
+	}
+
+	if tcpConn.SendBuf.UNA+1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
+		// valid ack number, RFC 3.4
+		// tcpConn.ACK = header.SeqNum
+		tcpConn.RetransmitStruct.handleRetransmission(header.AckNum)
+		tcpConn.SendBuf.UNA = int32(ACK - 1)
+		if len(tcpConn.SendSpaceOpen) == 0 {
+			tcpConn.SendSpaceOpen <- true
+		}
+
+	} else {
+		// invalid ack number, maybe duplicate
+		return
 	}
 }
 
@@ -402,23 +400,40 @@ func (rtStruct *Retransmission) handleRetransmission(ackNum uint32) {
 			break
 		}
 	}
-	if splitIndex != -1 {
-		// packets to be removed from RTQueue
-		rtStruct.RTQueue = rtStruct.RTQueue[splitIndex+1:]
-		// Calculate RTT and SRTT
-		recentPacketTime := rtStruct.RTQueue[splitIndex].Timestamp
-		rtt := time.Since(recentPacketTime)
+	// This means that there is something to be removed from the retransmission queue
+	if splitIndex >= 0 {
 
-		if rtStruct.SRTT == -1*time.Second {
-			rtStruct.SRTT = rtt
-		} else {
-			rtStruct.SRTT = time.Duration(1-rtStruct.Alpha)*rtStruct.SRTT + time.Duration(rtStruct.Alpha)*rtt
+		if rtStruct.RTQueue[splitIndex].NumTries == 0 {
+			// only do this if ack is NOT for retransmitted segment
+			// Calculate RTT and SRTT
+			recentPacketTime := rtStruct.RTQueue[splitIndex].Timestamp
+			rtt := time.Since(recentPacketTime)
+
+			if rtStruct.SRTT == -1*time.Second {
+				// Following RFC guidelines
+				rtStruct.SRTT = rtt
+			} else {
+				rtStruct.SRTT = time.Duration(1-rtStruct.Alpha)*rtStruct.SRTT + time.Duration(rtStruct.Alpha)*rtt
+			}
+			// Calculate RTO
+			rtStruct.RTO = max(RTO_MIN, min(time.Duration(rtStruct.Beta)*rtStruct.SRTT), RTO_MAX)
+			// Round up RTO if it's less than 1 second
+			rtStruct.RTO = max(1*time.Second, rtStruct.RTO)
+
+			// Restart timer with re-calculated RTO
+			rtStruct.RTOTimer.Stop()
+			rtStruct.RTOTimer = time.NewTicker(rtStruct.RTO)
 		}
-		// Calculate RTO
-		rtStruct.RTO = max(RTO_MIN, min(time.Duration(rtStruct.Beta)*rtStruct.SRTT), RTO_MAX)
-		rtStruct.RTO = max(1*time.Second, rtStruct.RTO)
 
+		// packets to be removed from RTQueue
+		if splitIndex+1 == len(rtStruct.RTQueue) {
+			rtStruct.RTQueue = []*RTPacket{}
+		} else {
+			rtStruct.RTQueue = rtStruct.RTQueue[splitIndex+1:]
+		}
 	}
-
-	// Restart timer
+	// If retransmission queue is empty, turn off RTO timer (all outstanding data has been ACKed)
+	if len(rtStruct.RTQueue) == 0 {
+		rtStruct.RTOTimer.Stop()
+	}
 }

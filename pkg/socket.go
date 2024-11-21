@@ -65,10 +65,11 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	// Create new connection (don't initialize ticker yet)
 	retransmitStruct := &Retransmission{
 		SRTT:    -1 * time.Second,
-		Alpha:   0.125,
-		Beta:    0.25,
+		Alpha:   0.85,
+		Beta:    1.5,
 		RTQueue: []*RTPacket{},
 		RTO:     RTO_MIN,
+		RTOTimer: time.NewTicker(RTO_MIN),
 	}
 
 	tcpConn := &TCPConn{
