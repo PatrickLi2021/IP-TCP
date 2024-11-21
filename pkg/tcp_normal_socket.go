@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -19,7 +20,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	// Loop until we read some data
 	for bytesRead == 0 {
 		// If the connection is closed, return EOF if no data has been read
-		if tcpConn.State == "CLOSED" {
+		if tcpConn.State == "CLOSE_WAIT" {
 			if bytesRead > 0 {
 				return bytesRead, nil
 			}
@@ -66,7 +67,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 // 	}
 // }
 
-func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
+func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
 	bytesToWrite := len(data)
@@ -96,6 +97,14 @@ func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 		bytesToWrite -= toWrite
 		data = data[toWrite:]
 	}
+
+	// We have written all our data into the send buffer at this point (VClose calls this)
+	if finFlag {
+		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW + 1
+		if len(tcpConn.SendBufferHasData) == 0 {
+			tcpConn.SendBufferHasData <- true
+		}
+	}
 	return len(originalDataToSend), nil
 }
 
@@ -107,7 +116,8 @@ func (tcpConn *TCPConn) SendSegment() {
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-		for bytesToSend > 0 && tcpConn.ReceiverWin-bytesInFlight >= 0 {
+
+		for bytesToSend > 0 && tcpConn.ReceiverWin-bytesInFlight >= 0 && tcpConn.State != "FIN_WAIT_2" {
 
 			// Zero-Window Probing
 			if tcpConn.ReceiverWin == 0 {
@@ -123,6 +133,19 @@ func (tcpConn *TCPConn) SendSegment() {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
 					tcpConn.SendBuf.NXT += 1
 				}
+				// Create packet and add to queue
+				rtPacket := &RTPacket{
+					Timestamp: time.Now(),
+					SeqNum:    tcpConn.SeqNum,
+					AckNum:    tcpConn.ACK,
+					Data:      payloadBuf,
+					Flags:     header.TCPFlagAck,
+				}
+				tcpConn.RetransmitStruct.RTQueue = append(tcpConn.RetransmitStruct.RTQueue, rtPacket)
+
+				// Start RTO timer
+				tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
+
 				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				tcpConn.SeqNum += uint32(payloadSize)
 				tcpConn.TotalBytesSent += uint32(payloadSize)
@@ -130,6 +153,20 @@ func (tcpConn *TCPConn) SendSegment() {
 			}
 
 			bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
+		}
+		if tcpConn.State == "FIN_WAIT_2" {
+			fmt.Println("VWrite error: cannot send after transport endpoint shutdown")
+		}
+
+		// Check to see if FIN == LBW
+		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW+1 {
+			flags := header.TCPFlagFin | header.TCPFlagAck
+			fmt.Println("Sent a FIN to initiate close")
+			tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if tcpConn.State == "ESTABLISHED" {
+				tcpConn.State = "FIN_WAIT_1"
+				tcpConn.SeqNum += 1
+			}
 		}
 	}
 }
@@ -151,15 +188,10 @@ func (tcpConn *TCPConn) VClose() error {
 	if tcpConn.State == "CLOSED" || tcpConn.State == "TIME_WAIT" || tcpConn.State == "LAST_ACK" || tcpConn.State == "CLOSING" {
 		return nil
 	}
-	// TODO: Check to see if there is any unACK'ed data left. For now, there is no check
+	// TODO: Check to see if there is any unACK'ed data left? For now, there is no check
 	if true {
-		// If not, send FIN
-		flags := header.TCPFlagFin | header.TCPFlagAck
-		tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-		if tcpConn.State == "ESTABLISHED" {
-			tcpConn.State = "FIN_WAIT_1"
-			tcpConn.SeqNum += 1
-		} else if tcpConn.State == "CLOSE_WAIT" {
+		_, _ = tcpConn.VWrite([]byte{}, true)
+		if tcpConn.State == "CLOSE_WAIT" {
 			tcpConn.State = "LAST_ACK"
 		}
 		return nil

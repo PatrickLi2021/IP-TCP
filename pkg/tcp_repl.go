@@ -64,7 +64,7 @@ func (tcpStack *TCPStack) SCommand(socketID uint32, bytes string) {
 		return
 	}
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
-	bytesSent, _ := tcpConn.VWrite([]byte(bytes))
+	bytesSent, _ := tcpConn.VWrite([]byte(bytes), false)
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 }
 
@@ -103,7 +103,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 	<-tcpConn.SfRfEstablished
 	go tcpConn.SendSegment()
 
-	for bytesSent < fileSize {
+	for bytesSent < fileSize && !tcpConn.IsClosing {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		if buf_space <= 0 {
@@ -118,11 +118,16 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 			return err
 		}
 		// Call VWrite()
-		bytesWritten, _ := tcpConn.VWrite(data)
+		bytesWritten, _ := tcpConn.VWrite(data, false)
 		bytesSent += bytesWritten
 	}
-	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
-	fmt.Println("DONE SF")
+	fmt.Println("Sent " + strconv.Itoa(fileSize) + " bytes")
+	//	Close socket after sending file
+	err = tcpConn.VClose()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
 	return nil
 }
 
@@ -138,15 +143,23 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 		fmt.Println(err)
 	}
 	defer outFile.Close()
-	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for bytesReceived < 202810 {
+
+	// If the conn is not closed or there's still data to read from receive buffer
+	for !tcpConn.IsClosing {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+
 		for toRead <= 0 {
-			<-tcpConn.RecvBufferHasData // Block until data is available
-			// tcpConn.RecvBuf.freeSpace.Wait()
+			fmt.Println("Blocking because receive buffer has no data rn")
+			<-tcpConn.RecvBufferHasData
+			// Received signal that data is available, update toRead
+			fmt.Println("Got past blocking")
+			// if tcpConn.State == "CLOSE_WAIT" {
+			// 	fmt.Println("Breaking out")
+			// 	break outerLoop
+			// }
 			toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		}
 		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
@@ -164,9 +177,8 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 				return err
 			}
 		}
-		fmt.Println("RF BYTES RECEIVED = " + strconv.Itoa(bytesReceived))
 	}
-	fmt.Println("RF DONE")
+	fmt.Println("Received " + strconv.Itoa(bytesReceived) + " bytes")
 	return nil
 }
 

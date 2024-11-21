@@ -11,6 +11,11 @@ import (
 	"github.com/google/netstack/tcpip/header"
 )
 
+const (
+	RTO_MIN = 100 * time.Millisecond
+	RTO_MAX = 5 * time.Second
+)
+
 type FourTuple struct {
 	remotePort uint16
 	remoteAddr netip.Addr
@@ -50,10 +55,29 @@ type TCPConn struct {
 	CurWindow         uint16
 	TotalBytesSent    uint32
 	ReceiverWin       uint32
+	IsClosing         bool
+	RetransmitStruct  *Retransmission
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
 	// rec side: out of order packets to track missing packets
+}
+
+type Retransmission struct {
+	RTOTimer *time.Ticker
+	SRTT     time.Duration
+	Alpha    float32
+	Beta     float32
+	RTQueue  []*RTPacket
+	RTO      time.Duration
+}
+
+type RTPacket struct {
+	Timestamp time.Time
+	SeqNum    uint32
+	AckNum    uint32
+	Data      []byte
+	Flags     uint32
 }
 
 type TCPStack struct {
@@ -150,8 +174,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			} else if header.TCPFlagFin == (header.TCPFlagFin & tcpHdr.Flags) {
 				// Ensure that this receiver has received all the data from the sender
-				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
-				if true {
+				// tcpConn.IsClosing = true
+				if tcpHdr.SeqNum == tcpConn.ACK {
 					tcpConn.State = "CLOSE_WAIT"
 					// Send an ACK back
 					tcpConn.ACK = tcpHdr.SeqNum + 1
@@ -160,18 +184,25 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		case "FIN_WAIT_1":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				// May need to introduce packet sequence and ack checking to make sure everything is in the correct
-				// order
-				tcpConn.State = "FIN_WAIT_2"
-				tcpStack.ConnectionsTable[fourTuple] = tcpConn
+
+				// ACK for FIN_ACK
+				if tcpHdr.AckNum == tcpConn.SeqNum+1 {
+					tcpConn.State = "FIN_WAIT_2"
+
+				} else {
+					// ACK for normal data
+					tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+					tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
+				}
 			}
+		// Socket can still receive data in FIN_WAIT_2
 		case "FIN_WAIT_2":
 			if tcpHdr.Flags == header.TCPFlagFin|header.TCPFlagAck {
 				tcpStack.ConnectionsTable[fourTuple] = tcpConn
 				tcpConn.ACK = tcpHdr.SeqNum + 1
 				tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				tcpConn.State = "TIME_WAIT"
-				time.Sleep(5 * time.Second)
+				time.Sleep(7 * time.Second)
 				delete(tcpStack.ConnectionsTable, fourTuple)
 				fmt.Println("This socket is closed")
 			} else if tcpHdr.Flags == header.TCPFlagAck {
@@ -183,6 +214,12 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
+			// If incoming sequence num is less than ACK, it's normal data that I handle normally
+			if tcpHdr.SeqNum < tcpConn.ACK {
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
+			}
+
 		case "LAST_ACK":
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
 				tcpConn.State = "CLOSED"
@@ -252,6 +289,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		UNA:     0,
 		NXT:     0,
 		LBW:     -1,
+		FIN:     -1,
 		Channel: make(chan bool), // TODO subject to change
 	}
 	RecvBuf := &TCPRecvBuf{
@@ -261,6 +299,14 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		Waiting:  false,
 		ChanSent: false,
 	}
+	retransmitStruct := &Retransmission{
+		SRTT:    -1 * time.Second,
+		Alpha:   0.125,
+		Beta:    0.25,
+		RTQueue: []*RTPacket{},
+		RTO:     RTO_MIN,
+	}
+
 	tcpConn := &TCPConn{
 		ID:                tcpStack.NextSocketID,
 		State:             "SYN_RECEIVED",
@@ -280,6 +326,8 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		CurWindow:         BUFFER_SIZE,
 		ACK:               tcpHdr.SeqNum + 1,
 		ReceiverWin:       BUFFER_SIZE,
+		IsClosing:         false,
+		RetransmitStruct:  retransmitStruct,
 	}
 
 	// Add the new normal socket to tcp stack's connections table
@@ -342,4 +390,35 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 		// tcpConn.RecvSpaceOpen <- true
 		// }
 	}
+}
+
+func (rtStruct *Retransmission) handleRetransmission(ackNum uint32) {
+	// removing packets to retransmit based on new ACK
+	splitIndex := -1 //represents the last packet that can be removed from RTQueue
+	for index, packet := range rtStruct.RTQueue {
+		if packet.SeqNum < ackNum {
+			splitIndex = index
+		} else {
+			break
+		}
+	}
+	if splitIndex != -1 {
+		// packets to be removed from RTQueue
+		rtStruct.RTQueue = rtStruct.RTQueue[splitIndex+1:]
+		// Calculate RTT and SRTT
+		recentPacketTime := rtStruct.RTQueue[splitIndex].Timestamp
+		rtt := time.Since(recentPacketTime)
+
+		if rtStruct.SRTT == -1*time.Second {
+			rtStruct.SRTT = rtt
+		} else {
+			rtStruct.SRTT = time.Duration(1-rtStruct.Alpha)*rtStruct.SRTT + time.Duration(rtStruct.Alpha)*rtt
+		}
+		// Calculate RTO
+		rtStruct.RTO = max(RTO_MIN, min(time.Duration(rtStruct.Beta)*rtStruct.SRTT), RTO_MAX)
+		rtStruct.RTO = max(1*time.Second, rtStruct.RTO)
+
+	}
+
+	// Restart timer
 }

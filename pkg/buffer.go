@@ -8,6 +8,7 @@ type TCPSendBuf struct {
 	NXT     int32 // Represents data in the buffer that has been sent (updated by TCP stack)
 	LBW     int32 // Represents data written into the buffer via VWrite() (updated by app)
 	Rec_win int32
+	FIN     int32
 	Channel chan bool
 }
 
