@@ -48,25 +48,6 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	return bytesRead, nil
 }
 
-// func (tcpConn *TCPConn) ListenForACK() error {
-// 	for {
-// 		select {
-// 		case ackNumber := <-tcpConn.AckReceived:
-// 			// Retrieve ACK number from packet
-// 			if int32(ackNumber) > tcpConn.SendBuf.UNA {
-// 				// Move the UNA pointer and free up space in the send buffer
-// 				tcpConn.SendBuf.UNA = int32(ackNumber)
-// 				// Send signal through channel indicating that space has freed up
-// 				tcpConn.SendSpaceOpen <- true
-// 			}
-// 			return nil
-// 		default:
-// 			// Channel was empty
-// 			return errors.New("no ack number received from channel")
-// 		}
-// 	}
-// }
-
 func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
@@ -112,7 +93,9 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 func (tcpConn *TCPConn) SendSegment() {
 	for {
 		// Block until new data is available in the send buffer
+		fmt.Println("before block in send seg")
 		<-tcpConn.SendBufferHasData
+		fmt.Println("done block in send seg")
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
@@ -143,6 +126,7 @@ func (tcpConn *TCPConn) SendSegment() {
 					NumTries:  0,
 				}
 				tcpConn.RetransmitStruct.RTQueue = append(tcpConn.RetransmitStruct.RTQueue, rtPacket)
+
 
 				// Start RTO timer
 				tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
