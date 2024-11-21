@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	maxPayloadSize = 3 // 1400 bytes - IP header size - TCP header size
+	maxPayloadSize = 1360 // 1400 bytes - IP header size - TCP header size
 )
 
 func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
@@ -176,12 +176,20 @@ func (tcpConn *TCPConn) CheckRTOTimer(rtStruct Retransmission) {
 	for {
 		select {
 		// If ticker doesn't fire within RTO, retransmit
-		case <-time.After(rtStruct.RTO):
+		case <-rtStruct.RTOTimer.C:
 			if len(rtStruct.RTQueue) > 0 {
 				queueHead := rtStruct.RTQueue[0]
 				// TODO: Potentially close socket
 				if queueHead.NumTries == MAX_RETRIES {
 					rtStruct.RTQueue = rtStruct.RTQueue[1:]
+
+					fourTuple := FourTuple {
+						remotePort: tcpConn.RemotePort,
+						remoteAddr: tcpConn.RemoteAddr,
+						srcPort: tcpConn.LocalPort,
+						srcAddr: tcpConn.LocalAddr,
+					}
+					delete(tcpConn.TCPStack.ConnectionsTable, fourTuple)
 				}
 				tcpConn.sendTCP(queueHead.Data, queueHead.Flags, queueHead.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				// Increment numTries

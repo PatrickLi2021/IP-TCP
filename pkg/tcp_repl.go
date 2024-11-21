@@ -158,10 +158,8 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 
 		for toRead <= 0 {
-			fmt.Println("Blocking because receive buffer has no data rn")
 			<-tcpConn.RecvBufferHasData
 			// Received signal that data is available, update toRead
-			fmt.Println("Got past blocking")
 			// if tcpConn.State == "CLOSE_WAIT" {
 			// 	fmt.Println("Breaking out")
 			// 	break outerLoop

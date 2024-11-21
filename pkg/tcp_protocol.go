@@ -393,7 +393,9 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 func (rtStruct *Retransmission) handleRetransmission(ackNum uint32) {
 	// removing packets to retransmit based on new ACK
 	splitIndex := -1 //represents the last packet that can be removed from RTQueue
+	fmt.Println("in handle retransmission")
 	for index, packet := range rtStruct.RTQueue {
+		fmt.Println(packet)
 		if packet.SeqNum < ackNum {
 			splitIndex = index
 		} else {
