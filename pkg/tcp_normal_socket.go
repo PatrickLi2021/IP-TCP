@@ -127,7 +127,6 @@ func (tcpConn *TCPConn) SendSegment() {
 				}
 				tcpConn.RetransmitStruct.RTQueue = append(tcpConn.RetransmitStruct.RTQueue, rtPacket)
 
-
 				// Start RTO timer
 				tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
 
@@ -163,15 +162,15 @@ func (tcpConn *TCPConn) CheckRTOTimer(rtStruct Retransmission) {
 		case <-rtStruct.RTOTimer.C:
 			if len(rtStruct.RTQueue) > 0 {
 				queueHead := rtStruct.RTQueue[0]
-				// TODO: Potentially close socket
+				// Close socket by deleting/removing socket entry
 				if queueHead.NumTries == MAX_RETRIES {
 					rtStruct.RTQueue = rtStruct.RTQueue[1:]
 
-					fourTuple := FourTuple {
+					fourTuple := FourTuple{
 						remotePort: tcpConn.RemotePort,
 						remoteAddr: tcpConn.RemoteAddr,
-						srcPort: tcpConn.LocalPort,
-						srcAddr: tcpConn.LocalAddr,
+						srcPort:    tcpConn.LocalPort,
+						srcAddr:    tcpConn.LocalAddr,
 					}
 					delete(tcpConn.TCPStack.ConnectionsTable, fourTuple)
 				}

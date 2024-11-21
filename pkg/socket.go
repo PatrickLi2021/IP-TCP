@@ -1,10 +1,12 @@
 package protocol
 
 import (
+	"container/heap"
 	"fmt"
 	"math/rand"
 	"net/netip"
 	"tcp-tcp-team-pa/iptcp_utils"
+	"tcp-tcp-team-pa/priorityQueue"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -45,7 +47,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	// Select random 32-bit integer for sequence number
 	seqNum := rand.Uint32()
 
-	// creating send and receive buffers
+	// Creating send and receive buffers
 	SendBuf := &TCPSendBuf{
 		Buffer:  make([]byte, BUFFER_SIZE),
 		UNA:     0,
@@ -62,15 +64,22 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		Waiting:  false,
 		ChanSent: false,
 	}
-	// Create new connection (don't initialize ticker yet)
+	// Create new connection
 	retransmitStruct := &Retransmission{
-		SRTT:    -1 * time.Second,
-		Alpha:   0.85,
-		Beta:    1.5,
-		RTQueue: []*RTPacket{},
-		RTO:     RTO_MIN,
+		SRTT:     -1 * time.Second,
+		Alpha:    0.85,
+		Beta:     1.5,
+		RTQueue:  []*RTPacket{},
+		RTO:      RTO_MIN,
 		RTOTimer: time.NewTicker(RTO_MIN),
 	}
+
+	// Create a new early arrivals struct and initialize its priority queue
+	earlyArrivals := &EarlyArrivals{
+		PQ:       priorityQueue.PriorityQueue{},
+		CurIndex: 0,
+	}
+	heap.Init(&earlyArrivals.PQ)
 
 	tcpConn := &TCPConn{
 		ID:                stack.NextSocketID,
@@ -92,6 +101,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		ReceiverWin:       BUFFER_SIZE,
 		IsClosing:         false,
 		RetransmitStruct:  retransmitStruct,
+		EarlyArrivals:     earlyArrivals,
 	}
 	fourTuple := &FourTuple{
 		remotePort: remotePort,
