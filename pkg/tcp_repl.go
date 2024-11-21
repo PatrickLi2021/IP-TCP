@@ -44,7 +44,7 @@ func (tcpStack *TCPStack) ACommand(port uint16) {
 			fmt.Println(err)
 			return
 		}
-		go tcpConn.CheckRTOTimer(*tcpConn.RetransmitStruct)
+		go tcpConn.CheckRTOTimer()
 		go tcpConn.SendSegment()
 		fmt.Println("listen conn created")
 	}
@@ -102,7 +102,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 
 	// Block until the connection is fully established before we call sendSegment()
 	<-tcpConn.SfRfEstablished
-	go tcpConn.CheckRTOTimer(*tcpConn.RetransmitStruct)
+	go tcpConn.CheckRTOTimer()
 	go tcpConn.SendSegment()
 
 	for bytesSent < fileSize && !tcpConn.IsClosing {

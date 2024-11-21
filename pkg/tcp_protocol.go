@@ -2,13 +2,15 @@ package protocol
 
 import (
 	"fmt"
-	ipv4header "github.com/brown-csci1680/iptcp-headers"
-	"github.com/google/netstack/tcpip/header"
 	"math/rand/v2"
 	"net/netip"
+	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"tcp-tcp-team-pa/priorityQueue"
 	"time"
+
+	ipv4header "github.com/brown-csci1680/iptcp-headers"
+	"github.com/google/netstack/tcpip/header"
 )
 
 const (
@@ -375,8 +377,10 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change (I think this is right?)
 
 			// Check the early arrivals queue to see if we can reconstruct the data
+			fmt.Println("early arrival queue len: " + strconv.Itoa(len(tcpConn.EarlyArrivals.PQ)))
 			for _, earlyArrival := range tcpConn.EarlyArrivals.PQ {
-
+				fmt.Println("actual early arrival")
+				fmt.Println(earlyArrival == nil)
 				if earlyArrival.SeqNum == tcpHdr.AckNum {
 					break
 				}
@@ -434,7 +438,6 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 func (rtStruct *Retransmission) handleRetransmission(ackNum uint32) {
 	// removing packets to retransmit based on new ACK
 	splitIndex := -1 //represents the last packet that can be removed from RTQueue
-	fmt.Println("in handle retransmission")
 	for index, packet := range rtStruct.RTQueue {
 		if packet.SeqNum < ackNum {
 			splitIndex = index

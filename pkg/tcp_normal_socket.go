@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -155,12 +156,16 @@ func (tcpConn *TCPConn) SendSegment() {
 	}
 }
 
-func (tcpConn *TCPConn) CheckRTOTimer(rtStruct Retransmission) {
+func (tcpConn *TCPConn) CheckRTOTimer() {
+	rtStruct := tcpConn.RetransmitStruct
 	for {
+		fmt.Println("RTQueue Length: " + strconv.Itoa(len(rtStruct.RTQueue)))
+		fmt.Println("TCPCONn queue Length: " + strconv.Itoa(len(tcpConn.RetransmitStruct.RTQueue)))
 		select {
 		// If ticker doesn't fire within RTO, retransmit
 		case <-rtStruct.RTOTimer.C:
 			if len(rtStruct.RTQueue) > 0 {
+				fmt.Println("in case in CheckRTOTimer")
 				queueHead := rtStruct.RTQueue[0]
 				// Close socket by deleting/removing socket entry
 				if queueHead.NumTries == MAX_RETRIES {
