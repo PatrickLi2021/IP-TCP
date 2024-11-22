@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"net/netip"
 	"tcp-tcp-team-pa/iptcp_utils"
-	"tcp-tcp-team-pa/priorityQueue"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -52,7 +51,6 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		UNA:     0,
 		NXT:     0,
 		LBW:     -1,
-		FIN:     -1,
 		Channel: make(chan bool), // TODO subject to change
 	}
 
@@ -63,8 +61,9 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		Waiting:  false,
 		ChanSent: false,
 	}
-	// Create new connection (don't initialize ticker yet)
-	retransmitStruct := &Retransmission{
+
+	// creating RTStruct
+	RTStruct := &Retransmits{
 		SRTT:    -1 * time.Second,
 		Alpha:   0.85,
 		Beta:    1.5,
@@ -72,7 +71,7 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		RTO:     RTO_MIN,
 		RTOTimer: time.NewTicker(RTO_MIN),
 	}
-
+	// Create new connection
 	tcpConn := &TCPConn{
 		ID:                stack.NextSocketID,
 		State:             "SYN_SENT",
@@ -91,9 +90,8 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		SendSpaceOpen:     make(chan bool, 1),
 		CurWindow:         BUFFER_SIZE,
 		ReceiverWin:       BUFFER_SIZE,
-		IsClosing:         false,
-		RetransmitStruct:  retransmitStruct,
-		EarlyArrivals: make(map[uint32]*priorityQueue.EarlyArrivalPacket),
+		EarlyArrivals: 		 make(map[uint32]*EarlyArrivalPacket),
+		RTStruct:					 RTStruct,
 	}
 	fourTuple := &FourTuple{
 		remotePort: remotePort,

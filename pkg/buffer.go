@@ -1,5 +1,10 @@
 package protocol
 
+import (
+	"fmt"
+	"strconv"
+)
+
 const BUFFER_SIZE = 65535
 
 type TCPSendBuf struct {
@@ -30,6 +35,9 @@ type TCPRecvBuf struct {
 func (sendBuf *TCPSendBuf) CalculateRemainingSendBufSpace() int {
 	LBW := sendBuf.LBW
 	UNA := sendBuf.UNA
+	fmt.Println("LBW = " + strconv.Itoa(int(LBW)))
+	fmt.Println("UNA = " + strconv.Itoa(int(UNA)))
+	fmt.Println(string(sendBuf.Buffer))
 	if LBW < 0 || UNA > LBW {
 		return BUFFER_SIZE
 	} else {

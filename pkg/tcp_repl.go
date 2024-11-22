@@ -44,8 +44,7 @@ func (tcpStack *TCPStack) ACommand(port uint16) {
 			fmt.Println(err)
 			return
 		}
-		// RETRANSMIT
-		// go tcpConn.CheckRTOTimer()
+		go tcpConn.CheckRTOTimer()
 		go tcpConn.SendSegment()
 		fmt.Println("listen conn created")
 	}
@@ -66,7 +65,7 @@ func (tcpStack *TCPStack) SCommand(socketID uint32, bytes string) {
 		return
 	}
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
-	bytesSent, _ := tcpConn.VWrite([]byte(bytes), false)
+	bytesSent, _ := tcpConn.VWrite([]byte(bytes))
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 }
 
@@ -103,18 +102,14 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 
 	// Block until the connection is fully established before we call sendSegment()
 	<-tcpConn.SfRfEstablished
-	// RETRANSMIT
-	// go tcpConn.CheckRTOTimer()
+	go tcpConn.CheckRTOTimer()
 	go tcpConn.SendSegment()
 
-	for bytesSent < fileSize && !tcpConn.IsClosing {
-		fmt.Println("top of SF")
+	for bytesSent < fileSize {
 		// Read into data how much available space there is in send buffer
 		buf_space := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		if buf_space <= 0 {
-			fmt.Println("before sf block")
 			<-tcpConn.SendSpaceOpen
-			fmt.Println("AFTER sf block")
 		}
 		buf_space = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		data_len := min(buf_space, fileSize-bytesSent)
@@ -125,20 +120,11 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 			return err
 		}
 		// Call VWrite()
-		bytesWritten, _ := tcpConn.VWrite(data, false)
+		bytesWritten, _ := tcpConn.VWrite(data)
 		bytesSent += bytesWritten
-		fmt.Println("bottom of SF")
 	}
-	fmt.Println("Sent " + strconv.Itoa(fileSize) + " bytes")
-
-	return nil
-
-	//	Close socket after sending file
-	err = tcpConn.VClose()
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
+	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
+	fmt.Println("DONE SF")
 	return nil
 }
 
@@ -154,22 +140,15 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 		fmt.Println(err)
 	}
 	defer outFile.Close()
+	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-
-	// If the conn is not closed or there's still data to read from receive buffer
-	// for !tcpConn.IsClosing {
-	for bytesReceived < 63 {
+	for bytesReceived < 1216865 {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-
 		for toRead <= 0 {
-			<-tcpConn.RecvBufferHasData
-			// Received signal that data is available, update toRead
-			// if tcpConn.State == "CLOSE_WAIT" {
-			// 	fmt.Println("Breaking out")
-			// 	break outerLoop
-			// }
+			<-tcpConn.RecvBufferHasData // Block until data is available
+			// tcpConn.RecvBuf.freeSpace.Wait()
 			toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		}
 		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
@@ -187,8 +166,9 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 				return err
 			}
 		}
+		fmt.Println("RF BYTES RECEIVED = " + strconv.Itoa(bytesReceived))
 	}
-	fmt.Println("Received " + strconv.Itoa(bytesReceived) + " bytes")
+	fmt.Println("RF DONE")
 	return nil
 }
 
