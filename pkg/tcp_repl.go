@@ -166,7 +166,6 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 				return err
 			}
 		}
-		fmt.Println("RF BYTES RECEIVED = " + strconv.Itoa(bytesReceived))
 	}
 	fmt.Println("RF DONE")
 	return nil

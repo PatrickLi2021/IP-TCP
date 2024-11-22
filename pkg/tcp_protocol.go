@@ -2,7 +2,7 @@ package protocol
 
 import (
 	"fmt"
-	"math/rand/v2"
+	"math/rand"
 	"net/netip"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	RTO_MIN     = 250 * time.Millisecond
+	RTO_MIN     = 100 * time.Millisecond
 	RTO_MAX     = 5 * time.Second
 	MAX_RETRIES = 3
 )
@@ -284,7 +284,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		RemoteAddr:        ipHdr.Src,
 		TCPStack:          tcpStack,
 		SeqNum:            uint32(seqNum),
-		ISN:               uint32(seqNum),
+		ISN:               0, //uint32(seqNum)
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
 		SendSpaceOpen:     make(chan bool, 1),
@@ -339,7 +339,9 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				PacketData: tcpPayload,
 			}
 			tcpConn.EarlyArrivals[tcpHdr.SeqNum] = earlyArrivalPacket
+			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		} else {
+			// SEQ NUM = ACK NUM
 			// Copy data into receive buffer
 			startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
 			for i := 0; i < len(tcpPayload); i++ {
@@ -347,7 +349,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			}
 			tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 			tcpConn.CurWindow -= uint16(len(tcpPayload))
-			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change
+			tcpConn.ACK += uint32(len(tcpPayload)) 
 
 
 			// EARLY ARRIVALS
@@ -368,7 +370,6 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				tcpConn.RecvBuf.NXT += uint32(packetLen)
 				tcpConn.CurWindow -= uint16(packetLen)
 				tcpConn.ACK += uint32(packetLen)
-				
 				// Remove early arrival from map since we've copied it into receive buffer
 				delete(tcpConn.EarlyArrivals, packetSeqNum)
 			}
@@ -376,7 +377,6 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			if len(tcpConn.RecvBufferHasData) == 0 {
 				tcpConn.RecvBufferHasData <- true
 			}
-
 			// Send a normal ACK back
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 
@@ -448,8 +448,7 @@ func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
 			rtStruct.RTO = max(1*time.Second, rtStruct.RTO)
 
 			// Restart timer with re-calculated RTO
-			rtStruct.RTOTimer.Stop()
-			rtStruct.RTOTimer = time.NewTicker(rtStruct.RTO)
+			rtStruct.RTOTimer.Reset(rtStruct.RTO)
 		}
 
 		// packets to be removed from RTQueue

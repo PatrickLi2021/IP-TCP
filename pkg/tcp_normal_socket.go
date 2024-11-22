@@ -48,25 +48,6 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 	return bytesRead, nil
 }
 
-// func (tcpConn *TCPConn) ListenForACK() error {
-// 	for {
-// 		select {
-// 		case ackNumber := <-tcpConn.AckReceived:
-// 			// Retrieve ACK number from packet
-// 			if int32(ackNumber) > tcpConn.SendBuf.UNA {
-// 				// Move the UNA pointer and free up space in the send buffer
-// 				tcpConn.SendBuf.UNA = int32(ackNumber)
-// 				// Send signal through channel indicating that space has freed up
-// 				tcpConn.SendSpaceOpen <- true
-// 			}
-// 			return nil
-// 		default:
-// 			// Channel was empty
-// 			return errors.New("no ack number received from channel")
-// 		}
-// 	}
-// }
-
 func (tcpConn *TCPConn) VWrite(data []byte) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
@@ -141,8 +122,10 @@ func (tcpConn *TCPConn) SendSegment() {
 				}
 				tcpConn.RTStruct.RTQueue = append(tcpConn.RTStruct.RTQueue, rtPacket)
 
+				// tcpConn.RTStruct.RTOTimer.Stop()
+
 				// Start RTO timer
-				tcpConn.RTStruct.RTOTimer = time.NewTicker(tcpConn.RTStruct.RTO)
+				tcpConn.RTStruct.RTOTimer.Reset(tcpConn.RTStruct.RTO)
 			}
 
 			bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
@@ -190,7 +173,7 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 		select {
 		// If ticker doesn't fire within RTO, retransmit
 		case <-rtStruct.RTOTimer.C:
-			fmt.Println("len of RT queue")
+			fmt.Println("timer expired")
 			if len(rtStruct.RTQueue) > 0 {
 				queueHead := rtStruct.RTQueue[0]
 				// Close socket by deleting/removing socket entry
@@ -201,10 +184,10 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 						srcPort:    tcpConn.LocalPort,
 						srcAddr:    tcpConn.LocalAddr,
 					}
-					fmt.Println("HERE")
 					delete(tcpConn.TCPStack.ConnectionsTable, fourTuple)
 					return
 				}
+				fmt.Println("ACTUALLY SENDING RETRANSMIt")
 				tcpConn.sendTCP(queueHead.Data, queueHead.Flags, queueHead.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				// Increment numTries
 				queueHead.NumTries++

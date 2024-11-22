@@ -135,13 +135,13 @@ func main() {
 			addr, _ := netip.ParseAddr(parts[2])
 			portInt, _ := strconv.Atoi(parts[3])
 			port := uint16(portInt)
-			tcpStack.SfCommand(filePath, addr, port)
+			go tcpStack.SfCommand(filePath, addr, port)
 		} else if len(userInput) > 6 && userInput[0:2] == "rf" {
 			parts := strings.Fields(userInput)
 			filePath := parts[1]
 			portInt, _ := strconv.Atoi(parts[2])
 			port := uint16(portInt)
-			tcpStack.RfCommand(filePath, port)
+			go tcpStack.RfCommand(filePath, port)
 		} else if len(userInput) >= 4 && userInput[0:2] == "cl" {
 			parsedUint, _ := strconv.ParseUint(userInput[3:], 10, 16)
 			socketId := uint16(parsedUint)
