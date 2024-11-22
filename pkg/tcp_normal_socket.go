@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -57,6 +56,7 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 		// Calculate remaining space in the send buffer
 		remainingSpace := tcpConn.SendBuf.CalculateRemainingSendBufSpace()
 		// Wait for space to become available if the buffer is full
+		fmt.Println("IN VWRITE")
 		if remainingSpace <= 0 {
 			<-tcpConn.SendSpaceOpen
 			remainingSpace = tcpConn.SendBuf.CalculateRemainingSendBufSpace()
@@ -94,9 +94,7 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 func (tcpConn *TCPConn) SendSegment() {
 	for {
 		// Block until new data is available in the send buffer
-		fmt.Println("before block in send seg")
 		<-tcpConn.SendBufferHasData
-		fmt.Println("done block in send seg")
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
@@ -117,19 +115,20 @@ func (tcpConn *TCPConn) SendSegment() {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
 					tcpConn.SendBuf.NXT += 1
 				}
+				// RETRANSMIT
 				// Create packet and add to queue
-				rtPacket := &RTPacket{
-					Timestamp: time.Now(),
-					SeqNum:    tcpConn.SeqNum,
-					AckNum:    tcpConn.ACK,
-					Data:      payloadBuf,
-					Flags:     header.TCPFlagAck,
-					NumTries:  0,
-				}
-				tcpConn.RetransmitStruct.RTQueue = append(tcpConn.RetransmitStruct.RTQueue, rtPacket)
+				// rtPacket := &RTPacket{
+				// 	Timestamp: time.Now(),
+				// 	SeqNum:    tcpConn.SeqNum,
+				// 	AckNum:    tcpConn.ACK,
+				// 	Data:      payloadBuf,
+				// 	Flags:     header.TCPFlagAck,
+				// 	NumTries:  0,
+				// }
+				// tcpConn.RetransmitStruct.RTQueue = append(tcpConn.RetransmitStruct.RTQueue, rtPacket)
 
-				// Start RTO timer
-				tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
+				// // Start RTO timer
+				// tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
 
 				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				tcpConn.SeqNum += uint32(payloadSize)
@@ -159,8 +158,6 @@ func (tcpConn *TCPConn) SendSegment() {
 func (tcpConn *TCPConn) CheckRTOTimer() {
 	rtStruct := tcpConn.RetransmitStruct
 	for {
-		fmt.Println("RTQueue Length: " + strconv.Itoa(len(rtStruct.RTQueue)))
-		fmt.Println("TCPCONn queue Length: " + strconv.Itoa(len(tcpConn.RetransmitStruct.RTQueue)))
 		select {
 		// If ticker doesn't fire within RTO, retransmit
 		case <-rtStruct.RTOTimer.C:
@@ -193,7 +190,7 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 	// Stop RTO timer for all zero window probes when entering zero window probing mode
-	tcpConn.RetransmitStruct.RTOTimer.Stop()
+	// tcpConn.RetransmitStruct.RTOTimer.Stop()
 
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize {
@@ -205,7 +202,7 @@ func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 		bytesInFlight = uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
 	}
 	// Restart timer
-	tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
+	// tcpConn.RetransmitStruct.RTOTimer = time.NewTicker(tcpConn.RetransmitStruct.RTO)
 }
 
 func (tcpConn *TCPConn) VClose() error {

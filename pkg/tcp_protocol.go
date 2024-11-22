@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
-	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"tcp-tcp-team-pa/priorityQueue"
 	"time"
@@ -65,7 +64,8 @@ type TCPConn struct {
 	ReceiverWin       uint32
 	IsClosing         bool
 	RetransmitStruct  *Retransmission
-	EarlyArrivals     *EarlyArrivals
+	// EarlyArrivals     *EarlyArrivals
+	EarlyArrivals 		map[uint32]*priorityQueue.EarlyArrivalPacket
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -293,10 +293,10 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		RTO:      RTO_MIN,
 		RTOTimer: time.NewTicker(RTO_MIN),
 	}
-	earlyArrivals := &EarlyArrivals{
-		PQ:       priorityQueue.PriorityQueue{},
-		CurIndex: 0,
-	}
+	// earlyArrivals := &EarlyArrivals{
+	// 	PQ:       priorityQueue.PriorityQueue{},
+	// 	CurIndex: 0,
+	// }
 
 	tcpConn := &TCPConn{
 		ID:                tcpStack.NextSocketID,
@@ -319,7 +319,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		ReceiverWin:       BUFFER_SIZE,
 		IsClosing:         false,
 		RetransmitStruct:  retransmitStruct,
-		EarlyArrivals:     earlyArrivals,
+		EarlyArrivals:     make(map[uint32]*priorityQueue.EarlyArrivalPacket),
 	}
 
 	// Add the new normal socket to tcp stack's connections table
@@ -352,16 +352,16 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			// send ack back, duplicate ack likely, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
-
+			// EARLY ARRIVAL
 			// Packet is early arrival
-		} else if tcpHdr.SeqNum > tcpConn.ACK {
-			// Create early arrival packet
-			earlyArrivalPacket := &priorityQueue.EarlyArrivalPacket{
-				SeqNum:     tcpHdr.SeqNum,
-				Index:      int(tcpConn.EarlyArrivals.CurIndex),
-				PacketData: tcpPayload,
-			}
-			tcpConn.EarlyArrivals.PQ.Push(earlyArrivalPacket)
+		// } else if tcpHdr.SeqNum > tcpConn.ACK {
+		// 	// Create early arrival packet
+		// 	earlyArrivalPacket := &priorityQueue.EarlyArrivalPacket{
+		// 		SeqNum:     tcpHdr.SeqNum,
+		// 		Index:      0,
+		// 		PacketData: tcpPayload,
+		// 	}
+		// 	tcpConn.EarlyArrivals[tcpHdr.SeqNum] = earlyArrivalPacket
 		} else {
 			// SEQ NUM == ACK
 			// // Calculate remaining space in buffer
@@ -376,24 +376,27 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.CurWindow -= uint16(len(tcpPayload))
 			tcpConn.ACK += uint32(len(tcpPayload)) //TODO may need to change (I think this is right?)
 
+			// EARLY ARRIVAL
 			// Check the early arrivals queue to see if we can reconstruct the data
-			fmt.Println("early arrival queue len: " + strconv.Itoa(len(tcpConn.EarlyArrivals.PQ)))
-			for _, earlyArrival := range tcpConn.EarlyArrivals.PQ {
-				fmt.Println("actual early arrival")
-				fmt.Println(earlyArrival == nil)
-				if earlyArrival.SeqNum == tcpHdr.AckNum {
-					break
-				}
-
-				// Fill receive buffer with IN-ORDER packets
-				if earlyArrival.SeqNum < tcpHdr.AckNum {
-					for i := 0; i < len(earlyArrival.PacketData); i++ {
-						tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = earlyArrival.PacketData[i]
-					}
-					// Remove early arrival from queue since we've copied it into receive buffer
-					tcpConn.EarlyArrivals.PQ.Pop()
-				}
-			}
+			// for {
+			// 	earliestPacket, ok := tcpConn.EarlyArrivals[tcpConn.ACK]
+			// 	if (!ok) {
+			// 		// no early arrivals can be added to recv buf yet, still missing data
+			// 		break
+			// 	}
+			// 	// Fill receive buffer with IN-ORDER packets
+			// 	startIdx := int(tcpConn.RecvBuf.NXT) % BUFFER_SIZE
+			// 	for i := 0; i < len(earliestPacket.PacketData); i++ {
+			// 		tcpConn.RecvBuf.Buffer[(startIdx+i)%BUFFER_SIZE] = earliestPacket.PacketData[i]
+			// 	}
+			// 	tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
+			// 	tcpConn.CurWindow -= uint16(len(tcpPayload))
+			// 	tcpConn.ACK += uint32(len(tcpPayload))
+				
+			// 	// Remove early arrival from map since we've copied it into receive buffer
+			// 	delete(tcpConn.EarlyArrivals, earliestPacket.SeqNum)
+			// }
+			
 			if len(tcpConn.RecvBufferHasData) == 0 {
 				tcpConn.RecvBufferHasData <- true
 			}
@@ -423,10 +426,13 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	if tcpConn.SendBuf.UNA+1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
-		tcpConn.RetransmitStruct.handleRetransmission(header.AckNum)
+		// RETRANSMIT
+		// tcpConn.RetransmitStruct.handleRetransmission(header.AckNum)
 		tcpConn.SendBuf.UNA = int32(ACK - 1)
 		if len(tcpConn.SendSpaceOpen) == 0 {
+			fmt.Println("before space open")
 			tcpConn.SendSpaceOpen <- true
+			fmt.Println("sent space open")
 		}
 
 	} else {

@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+      {
+          "name": "Run vhost (example)",
+          "type": "go",
+          "request": "launch",
+          "mode": "auto",
+          "program": "${workspaceFolder}/cmd/vhost", // TODO:  Fill in path to where your vrouter main.go lives
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": ["--config", "linear-r1h2"] // TODO: Fill in args to run program (modify for each net you want to run)
+
+      },
+      {
+          "name": "Run vrouter (example)",
+          "type": "go",
+          "request": "launch",
+          "mode": "auto",
+          "program": "${workspaceFolder}/reference/arm64/vrouter", // TODO: Fill in path to where your vrouter main.go lives
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": ["--config", "linear-r1h2"] // TODO:  Fill in args to run program (modify for each net you want to run)
+      }
+  ]
+}

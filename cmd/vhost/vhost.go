@@ -117,7 +117,8 @@ func main() {
 			}
 			<-tcpConn.SfRfEstablished
 			// thread that is woken up when there is stuff in send buf to send out
-			go tcpConn.CheckRTOTimer()
+			// RETRANSMIT
+			// go tcpConn.CheckRTOTimer()
 			go tcpConn.SendSegment()
 		} else if len(userInput) >= 5 && userInput[0:2] == "s " {
 			parts := strings.Split(userInput, " ")
