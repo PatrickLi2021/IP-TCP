@@ -3,7 +3,6 @@ package protocol
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -52,7 +51,7 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 	// Track the amount of data to write
 	originalDataToSend := data
 	bytesToWrite := len(data)
-	if (tcpConn.State == "FIN_WAIT_2") {
+	if tcpConn.State == "FIN_WAIT_2" {
 		fmt.Println("VWrite error: cannot send after transport endpoint shutdown")
 		return 0, nil
 	}
@@ -84,10 +83,8 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 	}
 
 	if finFlag {
-		fmt.Println("fin flag")
 		// tcpConn.SendBuf.LBW += 1
 		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW + 1
-		fmt.Println("set fin = " + strconv.Itoa(int(tcpConn.SendBuf.FIN)))
 		if len(tcpConn.SendBufferHasData) == 0 {
 			tcpConn.SendBufferHasData <- true
 		}
@@ -103,7 +100,7 @@ func (tcpConn *TCPConn) SendSegment() {
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-		for bytesToSend > 0 && tcpConn.ReceiverWin - bytesInFlight >= 0 && tcpConn.State != "FIN_WAIT_2" {
+		for bytesToSend > 0 && tcpConn.ReceiverWin-bytesInFlight >= 0 && tcpConn.State != "FIN_WAIT_2" {
 
 			// Zero-Window Probing
 			if tcpConn.ReceiverWin == 0 {
@@ -112,8 +109,8 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.SeqNum += 1
 				bytesToSend -= 1
 			}
-			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin) - int32(bytesInFlight))
-			if (payloadSize > 0) {
+			payloadSize := min(bytesToSend, maxPayloadSize, int32(tcpConn.ReceiverWin)-int32(bytesInFlight))
+			if payloadSize > 0 {
 				payloadBuf := make([]byte, payloadSize)
 				for i := 0; i < int(payloadSize); i++ {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
@@ -122,7 +119,7 @@ func (tcpConn *TCPConn) SendSegment() {
 				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				tcpConn.SeqNum += uint32(payloadSize)
 				tcpConn.TotalBytesSent += uint32(payloadSize)
-				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1	
+				bytesToSend = tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 
 				// RETRANSMIT
 				// Create packet and add to queue
@@ -135,7 +132,6 @@ func (tcpConn *TCPConn) SendSegment() {
 					NumTries:  0,
 				}
 				tcpConn.RTStruct.RTQueue = append(tcpConn.RTStruct.RTQueue, rtPacket)
-				fmt.Println("queue len after sendsegment " + strconv.Itoa(len(tcpConn.RTStruct.RTQueue)))
 				// tcpConn.RTStruct.RTOTimer.Stop()
 
 				// Start RTO timer
@@ -150,7 +146,7 @@ func (tcpConn *TCPConn) SendSegment() {
 		}
 
 		// Check to see if FIN == LBW
-		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW + 1{
+		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW+1 {
 			flags := header.TCPFlagFin | header.TCPFlagAck
 			tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			if tcpConn.State == "CLOSE_WAIT" {
@@ -158,6 +154,22 @@ func (tcpConn *TCPConn) SendSegment() {
 			} else if tcpConn.State == "ESTABLISHED" {
 				tcpConn.State = "FIN_WAIT_1"
 			}
+			// RETRANSMIT
+			// Create packet and add to queue
+			rtPacket := &RTPacket{
+				Timestamp: time.Now(),
+				SeqNum:    tcpConn.SeqNum,
+				AckNum:    tcpConn.ACK,
+				Data:      []byte{},
+				Flags:     header.TCPFlagAck | header.TCPFlagFin,
+				NumTries:  0,
+			}
+			tcpConn.RTStruct.RTQueue = append(tcpConn.RTStruct.RTQueue, rtPacket)
+			// tcpConn.RTStruct.RTOTimer.Stop()
+
+			// Start RTO timer
+			tcpConn.RTStruct.RTOTimer.Reset(tcpConn.RTStruct.RTO)
+
 			tcpConn.SeqNum += 1
 			tcpConn.SendBuf.NXT += 1
 			tcpConn.SendBuf.LBW += 1
@@ -167,7 +179,7 @@ func (tcpConn *TCPConn) SendSegment() {
 
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-	for tcpConn.ReceiverWin - bytesInFlight < maxPayloadSize {
+	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize {
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -186,10 +198,9 @@ func (tcpConn *TCPConn) VClose() error {
 	// If not, send FIN by setting BUF FIN flag
 
 	_, err := tcpConn.VWrite([]byte{}, true)
-	if (err != nil) {
+	if err != nil {
 		return err
 	}
-	fmt.Println("done VWRITE")
 	return nil
 }
 

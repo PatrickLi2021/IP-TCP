@@ -64,11 +64,11 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 
 	// creating RTStruct
 	RTStruct := &Retransmits{
-		SRTT:    -1 * time.Second,
-		Alpha:   0.85,
-		Beta:    1.5,
-		RTQueue: []*RTPacket{},
-		RTO:     RTO_MIN,
+		SRTT:     -1 * time.Second,
+		Alpha:    0.85,
+		Beta:     1.5,
+		RTQueue:  []*RTPacket{},
+		RTO:      RTO_MIN,
 		RTOTimer: time.NewTicker(RTO_MIN),
 	}
 	// Create new connection
@@ -90,8 +90,9 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		SendSpaceOpen:     make(chan bool, 1),
 		CurWindow:         BUFFER_SIZE,
 		ReceiverWin:       BUFFER_SIZE,
-		EarlyArrivals: 		 make(map[uint32]*EarlyArrivalPacket),
-		RTStruct:					 RTStruct,
+		EarlyArrivals:     make(map[uint32]*EarlyArrivalPacket),
+		RTStruct:          RTStruct,
+		IsClosing:         false,
 	}
 	fourTuple := &FourTuple{
 		remotePort: remotePort,
