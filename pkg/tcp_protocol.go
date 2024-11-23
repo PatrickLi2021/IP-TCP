@@ -210,6 +210,9 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			if tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin && len(tcpPayload) == 0 {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, 0)
+			} else if tcpHdr.Flags == header.TCPFlagAck {
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, 0)
 			}
 		case "LAST_ACK":
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
@@ -282,7 +285,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		RemoteAddr:        ipHdr.Src,
 		TCPStack:          tcpStack,
 		SeqNum:            uint32(seqNum),
-		ISN:               0, //uint32(seqNum)
+		ISN:               uint32(seqNum),
 		SendBuf:           SendBuf,
 		RecvBuf:           RecvBuf,
 		SendSpaceOpen:     make(chan bool, 1),
@@ -405,16 +408,18 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 	// TODO:
 	tcpConn.ReceiverWin = uint32(header.WindowSize)
 
-	if (payloadLen > int(tcpConn.CurWindow)) {
+	if (uint16(payloadLen) > tcpConn.CurWindow) {
 		// if received zero window probe, don't update UNA
 		return
 	}
 
-	fmt.Println("in handle ACK")
-	fmt.Println(int32(ACK))
-	fmt.Println(tcpConn.SendBuf.UNA + 1)
-	fmt.Println(tcpConn.SendBuf.NXT + 1)
-	if tcpConn.SendBuf.UNA + 1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
+	// fmt.Println("in handle ACK")
+	// fmt.Println("payload len = " + strconv.Itoa(int(payloadLen)))
+	// fmt.Println(ACK)
+	// fmt.Println(tcpConn.SendBuf.UNA + 1)
+	// fmt.Println(tcpConn.SendBuf.NXT + 1)
+	// fmt.Println("")
+	if uint32(tcpConn.SendBuf.UNA + 1) < ACK && ACK <= uint32(tcpConn.SendBuf.NXT+1) {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
 		tcpConn.SendBuf.UNA = int32(ACK-1)

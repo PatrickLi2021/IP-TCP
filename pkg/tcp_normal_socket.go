@@ -84,8 +84,10 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 	}
 
 	if finFlag {
-		tcpConn.SendBuf.LBW += 1
-		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW
+		fmt.Println("fin flag")
+		// tcpConn.SendBuf.LBW += 1
+		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW + 1
+		fmt.Println("set fin = " + strconv.Itoa(int(tcpConn.SendBuf.FIN)))
 		if len(tcpConn.SendBufferHasData) == 0 {
 			tcpConn.SendBufferHasData <- true
 		}
@@ -148,7 +150,7 @@ func (tcpConn *TCPConn) SendSegment() {
 		}
 
 		// Check to see if FIN == LBW
-		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW {
+		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW + 1{
 			flags := header.TCPFlagFin | header.TCPFlagAck
 			tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			if tcpConn.State == "CLOSE_WAIT" {
@@ -158,6 +160,7 @@ func (tcpConn *TCPConn) SendSegment() {
 			}
 			tcpConn.SeqNum += 1
 			tcpConn.SendBuf.NXT += 1
+			tcpConn.SendBuf.LBW += 1
 		}
 	}
 }
@@ -186,6 +189,7 @@ func (tcpConn *TCPConn) VClose() error {
 	if (err != nil) {
 		return err
 	}
+	fmt.Println("done VWRITE")
 	return nil
 }
 
