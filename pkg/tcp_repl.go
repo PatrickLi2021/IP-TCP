@@ -65,7 +65,7 @@ func (tcpStack *TCPStack) SCommand(socketID uint32, bytes string) {
 		return
 	}
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
-	bytesSent, _ := tcpConn.VWrite([]byte(bytes))
+	bytesSent, _ := tcpConn.VWrite([]byte(bytes), false)
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 }
 
@@ -120,11 +120,12 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 			return err
 		}
 		// Call VWrite()
-		bytesWritten, _ := tcpConn.VWrite(data)
+		bytesWritten, _ := tcpConn.VWrite(data, false)
 		bytesSent += bytesWritten
 	}
 	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
 	fmt.Println("DONE SF")
+
 	return nil
 }
 

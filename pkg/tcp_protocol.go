@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/netip"
+	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
 
@@ -190,16 +191,12 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		case "FIN_WAIT_1":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				// May need to introduce packet sequence and ack checking to make sure everything is in the correct
-				// order
 				tcpConn.State = "FIN_WAIT_2"
-				tcpStack.ConnectionsTable[fourTuple] = tcpConn
 			}
 		case "FIN_WAIT_2":
 			if tcpHdr.Flags == header.TCPFlagFin|header.TCPFlagAck {
-				tcpStack.ConnectionsTable[fourTuple] = tcpConn
-				tcpConn.ACK = tcpHdr.SeqNum + 1
-				tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 				tcpConn.State = "TIME_WAIT"
 				time.Sleep(5 * time.Second)
 				delete(tcpStack.ConnectionsTable, fourTuple)
@@ -210,14 +207,15 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		// Other party has initiated close, but we can still receive data (and should send ACKs back)
 		case "CLOSE_WAIT":
-			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
-				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
+			if tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin && len(tcpPayload) == 0 {
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, 0)
 			}
 		case "LAST_ACK":
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
 				tcpConn.State = "CLOSED"
 				delete(tcpStack.ConnectionsTable, fourTuple)
-				fmt.Println("This socket is closed, and was in CLOSE_WAIT")
+				fmt.Println("This socket is closed")
 			}
 		}
 		return
@@ -316,7 +314,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 
 func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
 	// tcpConn.AckReceived <- tcpHdr.AckNum
-	if len(tcpPayload) > 0 {
+	if len(tcpPayload) > 0 || (tcpConn.State == "CLOSE_WAIT" && len(tcpPayload) == 0) || (tcpConn.State == "FIN_WAIT_2" && len(tcpPayload) == 0){
 		// // Calculate remaining space in buffer
 		// remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 
@@ -351,6 +349,12 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.CurWindow -= uint16(len(tcpPayload))
 			tcpConn.ACK += uint32(len(tcpPayload)) 
 
+			if (len(tcpPayload) == 0) {
+				// receiving FIN + ACK which has len 0
+				tcpConn.RecvBuf.NXT += 1
+				tcpConn.CurWindow -= 1
+				tcpConn.ACK += 1
+			}
 
 			// EARLY ARRIVALS
 			// Check the early arrivals queue to see if we can reconstruct the data
@@ -370,6 +374,13 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				tcpConn.RecvBuf.NXT += uint32(packetLen)
 				tcpConn.CurWindow -= uint16(packetLen)
 				tcpConn.ACK += uint32(packetLen)
+
+				if (len(earliestPacket.PacketData) == 0) {
+					// FIN + ACK is in early arrival queue
+					tcpConn.RecvBuf.NXT += 1
+					tcpConn.CurWindow -= 1
+					tcpConn.ACK += 1
+				}
 				// Remove early arrival from map since we've copied it into receive buffer
 				delete(tcpConn.EarlyArrivals, packetSeqNum)
 			}
@@ -399,6 +410,10 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		return
 	}
 
+	fmt.Println("in handle ACK")
+	fmt.Println(int32(ACK))
+	fmt.Println(tcpConn.SendBuf.UNA + 1)
+	fmt.Println(tcpConn.SendBuf.NXT + 1)
 	if tcpConn.SendBuf.UNA + 1 < int32(ACK) && int32(ACK) <= tcpConn.SendBuf.NXT+1 {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
@@ -406,6 +421,8 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		if len(tcpConn.SendSpaceOpen) == 0 {
 			tcpConn.SendSpaceOpen <- true
 		}
+		fmt.Println("gonna call handleretransmission")
+		fmt.Println(tcpConn.State)
 		tcpConn.RTStruct.handleRetransmission(header.AckNum)
 
 	} else {
@@ -416,6 +433,7 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 }
 
 func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
+	fmt.Println("BEGIN, queue len: " + strconv.Itoa(len(rtStruct.RTQueue)))
 	// removing packets to retransmit based on new ACK
 	splitIndex := -1 //represents the last packet that can be removed from RTQueue
 	for index, packet := range rtStruct.RTQueue {
@@ -462,4 +480,5 @@ func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
 	if len(rtStruct.RTQueue) == 0 {
 		rtStruct.RTOTimer.Stop()
 	}
+	fmt.Println("END, queue len: " + strconv.Itoa(len(rtStruct.RTQueue)))
 }
