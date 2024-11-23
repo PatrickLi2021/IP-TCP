@@ -80,7 +80,7 @@ type TCPConn struct {
 	ReceiverWin       uint32
 	EarlyArrivals     map[uint32]*EarlyArrivalPacket
 	RTStruct          *Retransmits
-	LastAck           uint32
+	OtherSideLastSeq  uint32
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -188,42 +188,53 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		case "FIN_WAIT_1":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				if tcpConn.SeqNum+1 == tcpHdr.AckNum {
-					tcpConn.RTStruct.handleRetransmission(tcpHdr.AckNum)
-					tcpConn.TCPStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
-					tcpConn.State = "FIN_WAIT_2"
-				} else {
 					// ACK for actual data
 					tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 					tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
+
+					if tcpHdr.AckNum == tcpConn.SeqNum + 1 {
+						// got the ack back for the FIN ACK, can go into FIN WAIT 2
+						tcpConn.State = "FIN_WAIT_2"
+					}
 				}
-			}
 		case "FIN_WAIT_2":
 			if tcpHdr.Flags == header.TCPFlagFin|header.TCPFlagAck {
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
-
 				tcpConn.State = "TIME_WAIT"
-				time.Sleep(5 * time.Second)
-				delete(tcpStack.ConnectionsTable, fourTuple)
-				fmt.Println("This socket is closed")
 			} else if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
 		// Other party has initiated close, but we can still receive data (and should send ACKs back)
 		case "CLOSE_WAIT":
-			if tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin && len(tcpPayload) == 0 {
+			if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
-				tcpStack.HandleACK(packet, tcpHdr, tcpConn, 0)
-			} else if tcpHdr.Flags == header.TCPFlagAck {
-				tcpConn.RTStruct.handleRetransmission(tcpHdr.AckNum)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
+		case "TIME_WAIT":
+			if (tcpHdr.Flags == header.TCPFlagAck) || (tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin) {
+				// receiving normal data
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
+
+				if (tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin) {
+					// store last seq num of other side
+					tcpConn.OtherSideLastSeq = tcpHdr.SeqNum
+				}
+			}
+
 		case "LAST_ACK":
 			if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) == 0 {
-				tcpConn.State = "CLOSED"
-				delete(tcpStack.ConnectionsTable, fourTuple)
-				fmt.Println("This socket is closed")
+				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
+				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
+
+				if (tcpHdr.AckNum == tcpConn.SeqNum + 1) {
+					// ack back for FIN ACK
+					tcpConn.State = "CLOSED"
+					delete(tcpStack.ConnectionsTable, fourTuple)
+					fmt.Println("This socket is closed")
+				}
 			}
 		}
 		return
@@ -322,8 +333,11 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 }
 
 func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
-	// tcpConn.AckReceived <- tcpHdr.AckNum
-	if len(tcpPayload) > 0 || (tcpConn.State == "ESTABLISHED" && tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin) || (tcpConn.State == "FIN_WAIT_1" && len(tcpPayload) == 0) {
+	if len(tcpPayload) > 0 || 
+	(tcpConn.State == "ESTABLISHED" && tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin) ||
+	(tcpConn.State == "FIN_WAIT_1" && len(tcpPayload) == 0) || 
+	(tcpConn.State == "FIN_WAIT_2" && len(tcpPayload) == 0) ||
+	(tcpConn.State == "TIME_WAIT" && len(tcpPayload) == 0) {
 		// // Calculate remaining space in buffer
 		// remainingSpace := BUFFER_SIZE - tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 
