@@ -64,11 +64,7 @@ func (tcpStack *TCPStack) SCommand(socketID uint32, bytes string) {
 		fmt.Println("Error: Socket not found")
 		return
 	}
-	tcpConn, connExists := tcpStack.ConnectionsTable[*fourTuple]
-	if !connExists {
-		fmt.Println("Error: Socket not found")
-		return
-	}
+	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
 	bytesSent, _ := tcpConn.VWrite([]byte(bytes), false)
 	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
 }
@@ -127,6 +123,7 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		bytesWritten, _ := tcpConn.VWrite(data, false)
 		bytesSent += bytesWritten
 	}
+	// TODO: ADD A CALL TO VCLOSE HERE ONCE IT IS IMPLEMENTED
 	fmt.Println("DONE SF")
 	return tcpConn.VClose()
 }
@@ -146,7 +143,9 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// TODO: Continue reading as long as the connection stays open
 
 	bytesReceived := 0
-	for tcpConn. {
+	// go tcpConn.CheckRTOTimer()
+	// go tcpConn.SendSegment()
+	for !tcpConn.IsClosing {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
@@ -170,9 +169,8 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 			}
 		}
 	}
-
 	fmt.Println("RF DONE")
-	return nil
+	return tcpConn.VClose()
 }
 
 func (tcpStack *TCPStack) CloseCommand(socketId uint16) error {
