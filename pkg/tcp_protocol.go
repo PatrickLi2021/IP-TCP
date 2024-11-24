@@ -171,7 +171,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
-			} else if tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin {
+			} else if tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin {
 				// Ensure that this receiver has received all the data from the sender
 				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
@@ -198,7 +198,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
 		case "FIN_WAIT_2":
-			if tcpHdr.Flags == header.TCPFlagFin|header.TCPFlagAck {
+			if tcpHdr.Flags == header.TCPFlagFin | header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 				tcpConn.State = "TIME_WAIT"
@@ -325,8 +325,8 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 
 func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPFields) {
 	if len(tcpPayload) > 0 || 
-	(tcpConn.State == "ESTABLISHED" && tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin) ||
-	(tcpConn.State == "FIN_WAIT_2" && tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin) {
+	(tcpConn.State == "ESTABLISHED" && tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin) ||
+	(tcpConn.State == "FIN_WAIT_2" && tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin) {
 		// Zero Window Probe case
 		if uint16(len(tcpPayload)) > tcpConn.CurWindow {
 			// don't read data in, until
@@ -348,6 +348,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.EarlyArrivals[tcpHdr.SeqNum] = earlyArrivalPacket
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 		} else {
+			fmt.Println("ITERATION ONE")
 			// SEQ NUM = ACK NUM
 			// Copy data into receive buffer
 			if len(tcpPayload) > 0 {
@@ -358,11 +359,14 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 				tcpConn.CurWindow -= uint16(len(tcpPayload))
 				tcpConn.ACK += uint32(len(tcpPayload))
+				fmt.Println("1 REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 			}
 
-			if tcpHdr.Flags == (header.TCPFlagAck|header.TCPFlagFin) {
+			if tcpHdr.Flags == (header.TCPFlagAck | header.TCPFlagFin) {
 				// receiving FIN + ACK which has len 0
+				tcpConn.RecvBuf.FIN = int32(tcpConn.RecvBuf.NXT)
 				tcpConn.RecvBuf.NXT += 1
+				fmt.Println("REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 				tcpConn.ACK += 1
 			}
 

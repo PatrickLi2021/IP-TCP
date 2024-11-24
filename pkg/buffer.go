@@ -1,5 +1,10 @@
 package protocol
 
+import (
+	"fmt"
+	"strconv"
+)
+
 const BUFFER_SIZE = 65535
 
 type TCPSendBuf struct {
@@ -17,6 +22,7 @@ type TCPRecvBuf struct {
 	LBR    int32  // Represents the last byte read (updated by app)
 	NXT    uint32 // Represents how much data we've received (next byte we expect to receive)
 	// NXT is updated by your TCP stack (internal packet events)
+	FIN 	 int32
 	Waiting  bool
 	ChanSent bool
 }
@@ -39,5 +45,7 @@ func (sendBuf *TCPSendBuf) CalculateRemainingSendBufSpace() int {
 
 func (recBuf *TCPRecvBuf) CalculateOccupiedRecvBufSpace() int32 {
 	// assumption that NXT will always be > LBR
+	fmt.Println("NXT = " + strconv.Itoa(int(recBuf.NXT)))
+	fmt.Println("LBR = " + strconv.Itoa(int(recBuf.LBR)))
 	return (int32(recBuf.NXT) - recBuf.LBR - 1)
 }

@@ -139,7 +139,8 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	}
 	defer outFile.Close()
 
-	for bytesReceived < 1216865 {
+	bytesReceived := 0
+	for bytesReceived < 574 {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
