@@ -38,11 +38,7 @@ func (tcpConn *TCPConn) VRead(buf []byte, maxBytes uint32) (int, error) {
 		lbr := tcpConn.RecvBuf.LBR
 		for i := 0; i < int(bytesToRead); i++ {
 			lbr += 1
-			if (lbr != tcpConn.RecvBuf.FIN) {
-				buf[i] = tcpConn.RecvBuf.Buffer[lbr%BUFFER_SIZE]
-			} else {
-				bytesRead -= 1
-			}
+			buf[i] = tcpConn.RecvBuf.Buffer[lbr%BUFFER_SIZE]
 		}
 		tcpConn.RecvBuf.LBR = lbr
 		bytesRead += int(bytesToRead)

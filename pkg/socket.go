@@ -58,7 +58,6 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		Buffer:   make([]byte, BUFFER_SIZE),
 		LBR:      -1,
 		NXT:      0,
-		FIN: 			-1,
 		Waiting:  false,
 		ChanSent: false,
 	}

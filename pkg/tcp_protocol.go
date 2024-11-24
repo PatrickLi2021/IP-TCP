@@ -270,7 +270,6 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		Buffer:   make([]byte, BUFFER_SIZE),
 		NXT:      0,
 		LBR:      -1,
-		FIN: 			-1,
 		Waiting:  false,
 		ChanSent: false,
 	}
@@ -365,8 +364,8 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 
 			if tcpHdr.Flags == (header.TCPFlagAck | header.TCPFlagFin) {
 				// receiving FIN + ACK which has len 0
-				tcpConn.RecvBuf.FIN = int32(tcpConn.RecvBuf.NXT)
-				tcpConn.RecvBuf.NXT += 1
+				// tcpConn.RecvBuf.FIN = int32(tcpConn.RecvBuf.NXT)
+				// tcpConn.RecvBuf.NXT += 1
 				fmt.Println("REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 				tcpConn.ACK += 1
 			}
@@ -392,7 +391,7 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 
 				if len(earliestPacket.PacketData) == 0 {
 					// FIN + ACK is in early arrival queue
-					tcpConn.RecvBuf.NXT += 1
+					// tcpConn.RecvBuf.NXT += 1
 					tcpConn.ACK += 1
 				}
 				// Remove early arrival from map since we've copied it into receive buffer
