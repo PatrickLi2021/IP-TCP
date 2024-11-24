@@ -270,6 +270,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		Buffer:   make([]byte, BUFFER_SIZE),
 		NXT:      0,
 		LBR:      -1,
+		FIN: 			-1,
 		Waiting:  false,
 		ChanSent: false,
 	}
