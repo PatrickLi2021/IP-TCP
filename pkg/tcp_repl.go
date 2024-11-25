@@ -141,8 +141,10 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 
 	go tcpConn.SendSegment()
 
-	fmt.Println("tcp is closing")
-	for !tcpConn.IsClosing && int32(tcpConn.OtherSideLastSeq) != -1 && tcpConn.RecvBuf.LBR < int32(tcpConn.OtherSideLastSeq) {
+	fmt.Println("tcp is closing = " + strconv.FormatBool(tcpConn.IsClosing))
+	fmt.Println("lbr = " + strconv.Itoa(int(tcpConn.RecvBuf.LBR)))
+	fmt.Println("other side last seq = " + strconv.Itoa(int(int32(tcpConn.OtherSideLastSeq) - int32(tcpConn.OtherSideISN))))
+	for (tcpConn.OtherSideLastSeq == 0) || (tcpConn.OtherSideLastSeq != 0) && tcpConn.RecvBuf.LBR != (int32(tcpConn.OtherSideLastSeq) - int32(tcpConn.OtherSideISN)-2) {
 		fmt.Println("IN LOOP")
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
@@ -171,6 +173,9 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 				return err
 			}
 		}
+		fmt.Println("tcp is closing = " + strconv.FormatBool(tcpConn.IsClosing))
+		fmt.Println("lbr = " + strconv.Itoa(int(tcpConn.RecvBuf.LBR)))
+		fmt.Println("other side last seq = " + strconv.Itoa(int(tcpConn.OtherSideLastSeq)))
 	}
 	fmt.Println("RF DONE")
 	return tcpConn.VClose()

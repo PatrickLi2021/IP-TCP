@@ -83,6 +83,7 @@ type TCPConn struct {
 	RTStruct          *Retransmits
 	OtherSideLastSeq  uint32
 	IsClosing					bool
+	OtherSideISN			uint32
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -147,6 +148,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			if tcpHdr.Flags == (header.TCPFlagSyn | header.TCPFlagAck) {
 				// updating ACK #
 				tcpConn.ACK = tcpHdr.SeqNum + 1
+
+				tcpConn.OtherSideISN = tcpHdr.SeqNum
 
 				// sending ACK back
 				err := tcpConn.sendTCP([]byte{}, uint32(header.TCPFlagAck), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -239,6 +242,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			// Create new normal socket + its send/rec bufs
 			// Add new normal socket to tcp stack's table
 			newTcpConn := tcpStack.CreateNewNormalConn(tcpHdr, ipHdr)
+			newTcpConn.OtherSideISN = tcpHdr.SeqNum
 
 			// Send a SYN-ACK back to client
 			flags := header.TCPFlagSyn | header.TCPFlagAck
@@ -309,6 +313,7 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		RTStruct:          RTStruct,
 		OtherSideLastSeq:  0,
 		IsClosing: 				 false,
+		OtherSideISN: 		 0,
 	}
 
 	// Add the new normal socket to tcp stack's connections table
