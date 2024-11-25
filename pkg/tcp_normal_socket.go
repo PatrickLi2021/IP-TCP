@@ -3,6 +3,7 @@ package protocol
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/google/netstack/tcpip/header"
@@ -87,6 +88,7 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW + 1
 		if len(tcpConn.SendBufferHasData) == 0 {
 			tcpConn.SendBufferHasData <- true
+			fmt.Println("SEND BUF HAS DATA")
 		}
 	}
 	return len(originalDataToSend), nil
@@ -96,7 +98,9 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 func (tcpConn *TCPConn) SendSegment() {
 	for {
 		// Block until new data is available in the send buffer
+		fmt.Println("before reaidng from chan")
 		<-tcpConn.SendBufferHasData
+		fmt.Println("after reading from chan")
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
@@ -146,11 +150,15 @@ func (tcpConn *TCPConn) SendSegment() {
 		}
 
 		// Check to see if FIN == LBW
+		fmt.Println("send seg, nxt = " + strconv.Itoa(int(tcpConn.SendBuf.NXT)))
+		fmt.Println("send seg, fin = " + strconv.Itoa(int(tcpConn.SendBuf.FIN)))
+		fmt.Println("send seg, LBW + 1 = " + strconv.Itoa(int(tcpConn.SendBuf.LBW + 1)))
 		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW+1 {
 			flags := header.TCPFlagFin | header.TCPFlagAck
 			tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			if tcpConn.State == "CLOSE_WAIT" {
 				tcpConn.State = "LAST_ACK"
+				fmt.Println("CHANGED STATE")
 			} else if tcpConn.State == "ESTABLISHED" {
 				tcpConn.State = "FIN_WAIT_1"
 			}
@@ -198,6 +206,7 @@ func (tcpConn *TCPConn) VClose() error {
 	// If not, send FIN by setting BUF FIN flag
 
 	_, err := tcpConn.VWrite([]byte{}, true)
+	fmt.Println("DONE VWRITE")
 	if err != nil {
 		return err
 	}

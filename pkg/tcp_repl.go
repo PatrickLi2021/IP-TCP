@@ -74,7 +74,7 @@ func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
 	appBuffer := make([]byte, BUFFER_SIZE)
 	bytesRead, _ := tcpConn.VRead(appBuffer, numBytes)
-	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer[:bytesRead]))
+	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes")
 }
 
 func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint16) error {
@@ -139,8 +139,9 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	}
 	defer outFile.Close()
 
-	bytesReceived := 0
-	for bytesReceived < 1216865 {
+	go tcpConn.SendSegment()
+
+	for !tcpConn.IsClosing {
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
@@ -156,8 +157,8 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 			return err
 		}
 		if n != 0 {
-			bytesWritten, write_err := outFile.Write(buf[:n])
-			bytesReceived += bytesWritten
+			fmt.Println("buf in rf command = " + string(buf))
+			_, write_err := outFile.Write(buf[:n])
 			if write_err != nil {
 				fmt.Println(err)
 				return err
@@ -165,7 +166,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 		}
 	}
 	fmt.Println("RF DONE")
-	return nil
+	return tcpConn.VClose()
 }
 
 func (tcpStack *TCPStack) CloseCommand(socketId uint16) error {

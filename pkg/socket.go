@@ -92,6 +92,8 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 		ReceiverWin:       BUFFER_SIZE,
 		EarlyArrivals:     make(map[uint32]*EarlyArrivalPacket),
 		RTStruct:          RTStruct,
+		OtherSideLastSeq:  0,
+		IsClosing:				 false,
 	}
 	fourTuple := &FourTuple{
 		remotePort: remotePort,

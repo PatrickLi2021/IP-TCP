@@ -82,6 +82,7 @@ type TCPConn struct {
 	EarlyArrivals     map[uint32]*EarlyArrivalPacket
 	RTStruct          *Retransmits
 	OtherSideLastSeq  uint32
+	IsClosing					bool
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -174,6 +175,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			} else if tcpHdr.Flags == header.TCPFlagAck | header.TCPFlagFin {
 				// Ensure that this receiver has received all the data from the sender
 				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
+				tcpConn.OtherSideLastSeq = tcpHdr.SeqNum
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 				tcpConn.State = "CLOSE_WAIT"
@@ -305,6 +307,8 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		ReceiverWin:       BUFFER_SIZE,
 		EarlyArrivals:     make(map[uint32]*EarlyArrivalPacket),
 		RTStruct:          RTStruct,
+		OtherSideLastSeq:  0,
+		IsClosing: 				 false,
 	}
 
 	// Add the new normal socket to tcp stack's connections table
@@ -334,8 +338,11 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
 		} else if tcpHdr.SeqNum < tcpConn.ACK {
-			// send ack back, duplicate ack likely, don't increment anything
+			// send ack back, duplicate data likely, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if (tcpConn.OtherSideLastSeq != 0) && (tcpConn.ACK == uint32(tcpConn.OtherSideLastSeq) + 1) {
+				tcpConn.IsClosing = true
+			}
 			return
 
 			// EARLY ARRIVAL
@@ -347,8 +354,10 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			}
 			tcpConn.EarlyArrivals[tcpHdr.SeqNum] = earlyArrivalPacket
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if (tcpConn.OtherSideLastSeq != 0) && (tcpConn.ACK == uint32(tcpConn.OtherSideLastSeq) + 1) {
+				tcpConn.IsClosing = true
+			}
 		} else {
-			fmt.Println("ITERATION ONE")
 			// SEQ NUM = ACK NUM
 			// Copy data into receive buffer
 			if len(tcpPayload) > 0 {
@@ -403,6 +412,9 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			}
 			// Send a normal ACK back
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if (tcpConn.OtherSideLastSeq != 0) && (tcpConn.ACK == uint32(tcpConn.OtherSideLastSeq) + 1) {
+				tcpConn.IsClosing = true
+			}
 		}
 	} 
 	
