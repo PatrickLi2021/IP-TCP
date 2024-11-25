@@ -74,7 +74,7 @@ func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
 	appBuffer := make([]byte, BUFFER_SIZE)
 	bytesRead, _ := tcpConn.VRead(appBuffer, numBytes)
-	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes")
+	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer))
 }
 
 func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint16) error {
@@ -141,43 +141,29 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 
 	go tcpConn.SendSegment()
 
-	fmt.Println("tcp is closing = " + strconv.FormatBool(tcpConn.IsClosing))
-	fmt.Println("lbr = " + strconv.Itoa(int(tcpConn.RecvBuf.LBR)))
-	fmt.Println("other side last seq = " + strconv.Itoa(int(int32(tcpConn.OtherSideLastSeq) - int32(tcpConn.OtherSideISN))))
 	for (tcpConn.OtherSideLastSeq == 0) || (tcpConn.OtherSideLastSeq != 0) && tcpConn.RecvBuf.LBR != (int32(tcpConn.OtherSideLastSeq) - int32(tcpConn.OtherSideISN)-2) {
-		fmt.Println("IN LOOP")
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
-			fmt.Println("before vread chan")
 			<-tcpConn.RecvBufferHasData // Block until data is available
 			// tcpConn.RecvBuf.freeSpace.Wait()
-			fmt.Println("after vread chan")
 			toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		}
 		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
-		fmt.Println("TO READ = " + strconv.Itoa(int(toRead)))
 		buf := make([]byte, toRead)
 		n, err := tcpConn.VRead(buf, uint32(toRead))
 		if err != nil {
 			fmt.Println(err)
 			return err
 		}
-		fmt.Println("N = " + strconv.Itoa(n))
 		if n != 0 {
-			fmt.Println("buf in rf command = " + string(buf))
 			_, write_err := outFile.Write(buf[:n])
-			fmt.Println("DONE WRITING TO FILE")
 			if write_err != nil {
 				fmt.Println(err)
 				return err
 			}
 		}
-		fmt.Println("tcp is closing = " + strconv.FormatBool(tcpConn.IsClosing))
-		fmt.Println("lbr = " + strconv.Itoa(int(tcpConn.RecvBuf.LBR)))
-		fmt.Println("other side last seq = " + strconv.Itoa(int(tcpConn.OtherSideLastSeq)))
 	}
-	fmt.Println("RF DONE")
 	return tcpConn.VClose()
 }
 

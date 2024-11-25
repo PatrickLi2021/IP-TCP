@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/netip"
-	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
 
@@ -34,6 +33,7 @@ type Retransmits struct {
 	SRTT     time.Duration
 	Alpha    float32
 	Beta     float32
+	// RTQueueLock sync.RWMutex
 	RTQueue  []*RTPacket
 	RTO      time.Duration
 }
@@ -97,7 +97,6 @@ type TCPStack struct {
 	NextSocketID     uint16 // unique ID for each sockets per node
 	IPStack          IPStack
 	SocketIDToConn   map[uint32]*FourTuple
-	Channel          chan *TCPConn
 }
 
 func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
@@ -185,9 +184,6 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		case "FIN_WAIT_1":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				fmt.Println("tcpHdr.Ack Num  = " + strconv.Itoa(int(tcpHdr.AckNum - tcpConn.ISN)))
-				fmt.Println("seq num = " + strconv.Itoa(int(tcpConn.SeqNum - tcpConn.ISN)))
-				fmt.Println("seq num + 1 = " + strconv.Itoa(int(tcpConn.SeqNum - tcpConn.ISN + 1)))
 					if tcpHdr.AckNum == tcpConn.SeqNum {
 						// got the ack back for the FIN ACK, can go into FIN WAIT 2
 						tcpConn.State = "FIN_WAIT_2"
@@ -270,14 +266,11 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		UNA:     0,
 		NXT:     0,
 		LBW:     -1,
-		Channel: make(chan bool), // TODO subject to change
 	}
 	RecvBuf := &TCPRecvBuf{
 		Buffer:   make([]byte, BUFFER_SIZE),
 		NXT:      0,
 		LBR:      -1,
-		Waiting:  false,
-		ChanSent: false,
 	}
 
 	// creating RTStruct
@@ -373,14 +366,12 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 				tcpConn.CurWindow -= uint16(len(tcpPayload))
 				tcpConn.ACK += uint32(len(tcpPayload))
-				fmt.Println("1 REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 			}
 
 			if tcpHdr.Flags == (header.TCPFlagAck | header.TCPFlagFin) {
 				// receiving FIN + ACK which has len 0
 				// tcpConn.RecvBuf.FIN = int32(tcpConn.RecvBuf.NXT)
 				// tcpConn.RecvBuf.NXT += 1
-				fmt.Println("REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 				tcpConn.ACK += 1
 			}
 
@@ -431,14 +422,13 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 
 	tcpConn.ReceiverWin = uint32(header.WindowSize)
 
+	tcpConn.RTStruct.handleRetransmission(header.AckNum)
+
 	if uint16(payloadLen) > tcpConn.CurWindow {
 		// if received zero window probe, don't update UNA
 		return
 	}
-	// fmt.Println("ACK = " + strconv.Itoa(int(ACK)))
-	// fmt.Println("ISN = " + strconv.Itoa(int(tcpConn.ISN)))
-	// fmt.Println("UNA + 1 = " + strconv.Itoa(int((tcpConn.SendBuf.UNA+1))))
-	// fmt.Println("NXT + 1 = " + strconv.Itoa(int((tcpConn.SendBuf.NXT+1))))
+	fmt.Println("IN HANDLE ACK")
 	if uint32(tcpConn.SendBuf.UNA+1) < ACK && ACK <= uint32(tcpConn.SendBuf.NXT+1) {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
@@ -446,7 +436,6 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		if len(tcpConn.SendSpaceOpen) == 0 {
 			tcpConn.SendSpaceOpen <- true
 		}
-		tcpConn.RTStruct.handleRetransmission(header.AckNum)
 
 	} else {
 		// invalid ack number, maybe duplicate
@@ -458,24 +447,27 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
 	// removing packets to retransmit based on new ACK
 	splitIndex := -1 //represents the last packet that can be removed from RTQueue
+	ackPacketIndex := -1
 	for index, packet := range rtStruct.RTQueue {
 		if packet != nil {
 			if packet.SeqNum < ackNum {
 				splitIndex = index
+			} else if packet.SeqNum + uint32(len(packet.Data)) == ackNum {
+				ackPacketIndex = index
 			} else {
 				break
 			}
 		}
 	}
-	// This means that there is something to be removed from the retransmission queue
-	if splitIndex >= 0 {
 
-		if rtStruct.RTQueue[splitIndex].NumTries == 0 {
+	// recalc RTO if necessary
+	if (ackPacketIndex >= 0) {
+		if rtStruct.RTQueue[ackPacketIndex].NumTries == 0 {
 			// only do this if ack is NOT for retransmitted segment
 			// Calculate RTT and SRTT
-			recentPacketTime := rtStruct.RTQueue[splitIndex].Timestamp
+			recentPacketTime := rtStruct.RTQueue[ackPacketIndex].Timestamp
 			rtt := time.Since(recentPacketTime)
-
+	
 			if rtStruct.SRTT == -1*time.Second {
 				// Following RFC guidelines
 				rtStruct.SRTT = rtt
@@ -486,13 +478,17 @@ func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
 			rtStruct.RTO = max(RTO_MIN, min(time.Duration(rtStruct.Beta)*rtStruct.SRTT), RTO_MAX)
 			// Round up RTO if it's less than 1 second
 			rtStruct.RTO = max(1*time.Second, rtStruct.RTO)
-
+	
 			// Restart timer with re-calculated RTO
 			rtStruct.RTOTimer.Reset(rtStruct.RTO)
 		}
+	}
 
+	// This means that there is something to be removed from the retransmission queue
+	if splitIndex >= 0 {
 		// packets to be removed from RTQueue
 		if splitIndex+1 == len(rtStruct.RTQueue) {
+
 			rtStruct.RTQueue = []*RTPacket{}
 		} else {
 			rtStruct.RTQueue = rtStruct.RTQueue[splitIndex+1:]

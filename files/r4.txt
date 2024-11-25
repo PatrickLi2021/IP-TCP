@@ -15309,4 +15309,220 @@ In common operating systems, both the Nagle algorithm and delayed acknowledgment
 
 This modification is implemented in some common operating systems and does not impact TCP interoperability. Additionally, many applications simply disable Nagle since this is generally supported by a socket option. The TCP standard has not been updated to include this Nagle modification, but implementers may find it beneficial to consider.
 
-A.4. Low Watermark Sett
+A.4. Low Watermark Settings
+Some operating system kernel TCP implementations include socket options that allow specifying the number of bytes in the buffer until the socket layer will pass sent data to TCP (SO_SNDLOWAT) or to the application on receiving (SO_RCVLOWAT).
+
+In addition, another socket option (TCP_NOTSENT_LOWAT) can be used to control the amount of unsent bytes in the write queue. This can help a sending TCP application to avoid creating large amounts of buffered data (and corresponding latency). As an example, this may be useful for applications that are multiplexing data from multiple upper-level streams onto a connection, especially when streams may be a mix of interactive/real-time and bulk data transfer.
+
+Appendix B. TCP Requirement Summary
+This section is adapted from RFC 1122.
+
+Note that there is no requirement related to PLPMTUD in this list, but that PLPMTUD is recommended.
+
+Table 8: TCP Requirements Summary
+Feature	ReqID	MUST	SHOULD	MAY	SHOULD NOT	MUST NOT
+PUSH flag
+Aggregate or queue un-pushed data	MAY-16	 	 	X	 	 
+Sender collapse successive PSH bits	SHLD-27	 	X	 	 	 
+SEND call can specify PUSH	MAY-15	 	 	X	 	 
+If cannot: sender buffer indefinitely
+MUST-60	 	 	 	 	X
+If cannot: PSH last segment
+MUST-61	X	 	 	 	 
+Notify receiving ALP1 of PSH	MAY-17	 	 	X	 	 
+Send max size segment when possible	SHLD-28	 	X	 	 	 
+Window
+Treat as unsigned number	MUST-1	X	 	 	 	 
+Handle as 32-bit number	REC-1	 	X	 	 	 
+Shrink window from right	SHLD-14	 	 	 	X	 
+Send new data when window shrinks
+SHLD-15	 	 	 	X	 
+Retransmit old unacked data within window
+SHLD-16	 	X	 	 	 
+Time out conn for data past right edge
+SHLD-17	 	 	 	X	 
+Robust against shrinking window	MUST-34	X	 	 	 	 
+Receiver's window closed indefinitely	MAY-8	 	 	X	 	 
+Use standard probing logic	MUST-35	X	 	 	 	 
+Sender probe zero window	MUST-36	X	 	 	 	 
+First probe after RTO
+SHLD-29	 	X	 	 	 
+Exponential backoff
+SHLD-30	 	X	 	 	 
+Allow window stay zero indefinitely	MUST-37	X	 	 	 	 
+Retransmit old data beyond SND.UNA+SND.WND	MAY-7	 	 	X	 	 
+Process RST and URG even with zero window	MUST-66	X	 	 	 	 
+Urgent Data
+Include support for urgent pointer	MUST-30	X	 	 	 	 
+Pointer indicates first non-urgent octet	MUST-62	X	 	 	 	 
+Arbitrary length urgent data sequence	MUST-31	X	 	 	 	 
+Inform ALP1 asynchronously of urgent data	MUST-32	X	 	 	 	 
+ALP1 can learn if/how much urgent data Q'd	MUST-33	X	 	 	 	 
+ALP employ the urgent mechanism	SHLD-13	 	 	 	X	 
+TCP Options
+Support the mandatory option set	MUST-4	X	 	 	 	 
+Receive TCP Option in any segment	MUST-5	X	 	 	 	 
+Ignore unsupported options	MUST-6	X	 	 	 	 
+Include length for all options except EOL+NOP	MUST-68	X	 	 	 	 
+Cope with illegal option length	MUST-7	X	 	 	 	 
+Process options regardless of word alignment	MUST-64	X	 	 	 	 
+Implement sending & receiving MSS Option	MUST-14	X	 	 	 	 
+IPv4 Send MSS Option unless 536	SHLD-5	 	X	 	 	 
+IPv6 Send MSS Option unless 1220	SHLD-5	 	X	 	 	 
+Send MSS Option always	MAY-3	 	 	X	 	 
+IPv4 Send-MSS default is 536	MUST-15	X	 	 	 	 
+IPv6 Send-MSS default is 1220	MUST-15	X	 	 	 	 
+Calculate effective send seg size	MUST-16	X	 	 	 	 
+MSS accounts for varying MTU	SHLD-6	 	X	 	 	 
+MSS not sent on non-SYN segments	MUST-65	 	 	 	 	X
+MSS value based on MMS_R	MUST-67	X	 	 	 	 
+Pad with zero	MUST-69	X	 	 	 	 
+TCP Checksums
+Sender compute checksum	MUST-2	X	 	 	 	 
+Receiver check checksum	MUST-3	X	 	 	 	 
+ISN Selection
+Include a clock-driven ISN generator component	MUST-8	X	 	 	 	 
+Secure ISN generator with a PRF component	SHLD-1	 	X	 	 	 
+PRF computable from outside the host	MUST-9	 	 	 	 	X
+Opening Connections
+Support simultaneous open attempts	MUST-10	X	 	 	 	 
+SYN-RECEIVED remembers last state	MUST-11	X	 	 	 	 
+Passive OPEN call interfere with others	MUST-41	 	 	 	 	X
+Function: simultaneously LISTENs for same port	MUST-42	X	 	 	 	 
+Ask IP for src address for SYN if necessary	MUST-44	X	 	 	 	 
+Otherwise, use local addr of connection
+MUST-45	X	 	 	 	 
+OPEN to broadcast/multicast IP address	MUST-46	 	 	 	 	X
+Silently discard seg to bcast/mcast addr	MUST-57	X	 	 	 	 
+Closing Connections
+RST can contain data	SHLD-2	 	X	 	 	 
+Inform application of aborted conn	MUST-12	X	 	 	 	 
+Half-duplex close connections	MAY-1	 	 	X	 	 
+Send RST to indicate data lost
+SHLD-3	 	X	 	 	 
+In TIME-WAIT state for 2MSL seconds	MUST-13	X	 	 	 	 
+Accept SYN from TIME-WAIT state
+MAY-2	 	 	X	 	 
+Use Timestamps to reduce TIME-WAIT
+SHLD-4	 	X	 	 	 
+Retransmissions
+Implement exponential backoff, slow start, and congestion avoidance	MUST-19	X	 	 	 	 
+Retransmit with same IP identity	MAY-4	 	 	X	 	 
+Karn's algorithm	MUST-18	X	 	 	 	 
+Generating ACKs
+Aggregate whenever possible	MUST-58	X	 	 	 	 
+Queue out-of-order segments	SHLD-31	 	X	 	 	 
+Process all Q'd before send ACK	MUST-59	X	 	 	 	 
+Send ACK for out-of-order segment	MAY-13	 	 	X	 	 
+Delayed ACKs	SHLD-18	 	X	 	 	 
+Delay < 0.5 seconds
+MUST-40	X	 	 	 	 
+Every 2nd full-sized segment or 2*RMSS ACK'd
+SHLD-19	 	X	 	 	 
+Receiver SWS-Avoidance Algorithm	MUST-39	X	 	 	 	 
+Sending Data
+Configurable TTL	MUST-49	X	 	 	 	 
+Sender SWS-Avoidance Algorithm	MUST-38	X	 	 	 	 
+Nagle algorithm	SHLD-7	 	X	 	 	 
+Application can disable Nagle algorithm
+MUST-17	X	 	 	 	 
+Connection Failures
+Negative advice to IP on R1 retransmissions	MUST-20	X	 	 	 	 
+Close connection on R2 retransmissions	MUST-20	X	 	 	 	 
+ALP1 can set R2	MUST-21	X	 	 	 	 
+Inform ALP of R1<=retxs<R2	SHLD-9	 	X	 	 	 
+Recommended value for R1	SHLD-10	 	X	 	 	 
+Recommended value for R2	SHLD-11	 	X	 	 	 
+Same mechanism for SYNs	MUST-22	X	 	 	 	 
+R2 at least 3 minutes for SYN
+MUST-23	X	 	 	 	 
+Send Keep-alive Packets
+Send Keep-alive Packets:	MAY-5	 	X	 	 	 
+Application can request
+MUST-24	X	 	 	 	 
+Default is "off"
+MUST-25	X	 	 	 	 
+Only send if idle for interval
+MUST-26	X	 	 	 	 
+Interval configurable
+MUST-27	X	 	 	 	 
+Default at least 2 hrs.
+MUST-28	X	 	 	 	 
+Tolerant of lost ACKs
+MUST-29	X	 	 	 	 
+Send with no data
+SHLD-12	 	X	 	 	 
+Configurable to send garbage octet
+MAY-6	 	 	X	 	 
+IP Options
+Ignore options TCP doesn't understand	MUST-50	X	 	 	 	 
+Timestamp support	MAY-10	 	X	 	 	 
+Record Route support	MAY-11	 	X	 	 	 
+Source Route:		 	 	 	 	 
+ALP1 can specify
+MUST-51	X	 	 	 	 
+Overrides src route in datagram
+MUST-52	X	 	 	 	 
+Build return route from src route
+MUST-53	X	 	 	 	 
+Later src route overrides
+SHLD-24	 	X	 	 	 
+Receiving ICMP Messages from IP
+Receiving ICMP messages from IP	MUST-54	X	 	 	 	 
+Dest Unreach (0,1,5) => inform ALP
+SHLD-25	X	 	 	 	 
+Abort on Dest Unreach (0,1,5)
+MUST-56	 	 	 	 	X
+Dest Unreach (2-4) => abort conn
+SHLD-26	 	X	 	 	 
+Source Quench => silent discard
+MUST-55	X	 	 	 	 
+Abort on Time Exceeded
+MUST-56	 	 	 	 	X
+Abort on Param Problem
+MUST-56	 	 	 	 	X
+Address Validation
+Reject OPEN call to invalid IP address	MUST-46	X	 	 	 	 
+Reject SYN from invalid IP address	MUST-63	X	 	 	 	 
+Silently discard SYN to bcast/mcast addr	MUST-57	X	 	 	 	 
+TCP/ALP Interface Services
+Error Report mechanism	MUST-47	X	 	 	 	 
+ALP can disable Error Report Routine	SHLD-20	 	X	 	 	 
+ALP can specify Diffserv field for sending	MUST-48	X	 	 	 	 
+Passed unchanged to IP
+SHLD-22	 	X	 	 	 
+ALP can change Diffserv field during connection	SHLD-21	 	X	 	 	 
+ALP generally changing Diffserv during conn.	SHLD-23	 	 	 	X	 
+Pass received Diffserv field up to ALP	MAY-9	 	 	X	 	 
+FLUSH call	MAY-14	 	 	X	 	 
+Optional local IP addr param in OPEN	MUST-43	X	 	 	 	 
+RFC 5961 Support
+Implement data injection protection	MAY-12	 	 	X	 	 
+Explicit Congestion Notification
+Support ECN	SHLD-8	 	X	 	 	 
+Alternative Congestion Control
+Implement alternative conformant algorithm(s)	MAY-18	 	 	X	 	 
+FOOTNOTES: (1) "ALP" means Application-Layer Program.
+
+Acknowledgments
+This document is largely a revision of RFC 793, of which Jon Postel was the editor. Due to his excellent work, it was able to last for three decades before we felt the need to revise it.
+
+Andre Oppermann was a contributor and helped to edit the first revision of this document.
+
+We are thankful for the assistance of the IETF TCPM working group chairs over the course of work on this document:
+
+Michael Scharf
+Yoshifumi Nishida
+Pasi Sarolahti
+Michael
+During the discussions of this work on the TCPM mailing list, in working group meetings, and via area reviews, helpful comments, critiques, and reviews were received from (listed alphabetically by last name): Praveen Balasubramanian, David Borman, Mohamed Boucadair, Bob Briscoe, Neal Cardwell, Yuchung Cheng, Martin Duke, Francis Dupont, Ted Faber, Gorry Fairhurst, Fernando Gont, Rodney Grimes, Yi Huang, Rahul Jadhav, Markku Kojo, Mike Kosek, Juhamatti Kuusisaari, Kevin Lahey, Kevin Mason, Matt Mathis, Stephen McQuistin, Jonathan Morton, Matt Olson, Tommy Pauly, Tom Petch, Hagen Paul Pfeifer, Kyle Rose, Anthony Sabatini, Michael Scharf, Greg Skinner, Joe Touch, Michael, Reji Varghese, Bernie Volz, Tim Wicinski, Lloyd Wood, and Alex Zimmermann.
+
+Joe Touch provided additional help in clarifying the description of segment size parameters and PMTUD/PLPMTUD recommendations. Markku Kojo helped put together the text in the section on TCP Congestion Control.
+
+This document includes content from errata that were reported by (listed chronologically): Yin Shuming, Bob Braden, Morris M. Keesan, Pei-chun Cheng, Constantin Hagemeier, Vishwas Manral, Mykyta Yevstifeyev, EungJun Yi, Botong Huang, Charles Deng, Merlin Buge.
+
+Author's Address
+Wesley M. Eddy (editor)
+MTI Systems
+United States of America
+Email: wes@mti-systems.com
