@@ -206,7 +206,6 @@ func (tcpConn *TCPConn) VClose() error {
 	// If not, send FIN by setting BUF FIN flag
 
 	_, err := tcpConn.VWrite([]byte{}, true)
-	fmt.Println("DONE VWRITE")
 	if err != nil {
 		return err
 	}

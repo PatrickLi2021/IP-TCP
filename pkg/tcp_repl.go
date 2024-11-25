@@ -141,24 +141,31 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 
 	go tcpConn.SendSegment()
 
-	for !tcpConn.IsClosing {
+	fmt.Println("tcp is closing")
+	for !tcpConn.IsClosing && int32(tcpConn.OtherSideLastSeq) != -1 && tcpConn.RecvBuf.LBR < int32(tcpConn.OtherSideLastSeq) {
+		fmt.Println("IN LOOP")
 		// Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
+			fmt.Println("before vread chan")
 			<-tcpConn.RecvBufferHasData // Block until data is available
 			// tcpConn.RecvBuf.freeSpace.Wait()
+			fmt.Println("after vread chan")
 			toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		}
 		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
+		fmt.Println("TO READ = " + strconv.Itoa(int(toRead)))
 		buf := make([]byte, toRead)
 		n, err := tcpConn.VRead(buf, uint32(toRead))
 		if err != nil {
 			fmt.Println(err)
 			return err
 		}
+		fmt.Println("N = " + strconv.Itoa(n))
 		if n != 0 {
 			fmt.Println("buf in rf command = " + string(buf))
 			_, write_err := outFile.Write(buf[:n])
+			fmt.Println("DONE WRITING TO FILE")
 			if write_err != nil {
 				fmt.Println(err)
 				return err
