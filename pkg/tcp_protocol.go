@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/netip"
-	"strconv"
 	"tcp-tcp-team-pa/iptcp_utils"
 	"time"
 
@@ -34,8 +33,9 @@ type Retransmits struct {
 	SRTT     time.Duration
 	Alpha    float32
 	Beta     float32
-	RTQueue  []*RTPacket
-	RTO      time.Duration
+	// RTQueueLock sync.RWMutex
+	RTQueue []*RTPacket
+	RTO     time.Duration
 }
 
 type RTPacket struct {
@@ -81,7 +81,9 @@ type TCPConn struct {
 	ReceiverWin       uint32
 	EarlyArrivals     map[uint32]*EarlyArrivalPacket
 	RTStruct          *Retransmits
+	OtherSideLastSeq  uint32
 	IsClosing         bool
+	OtherSideISN      uint32
 
 	// buffers, initial seq num
 	// sliding window (send): some list or queue of in flight packets for retransmit
@@ -95,7 +97,6 @@ type TCPStack struct {
 	NextSocketID     uint16 // unique ID for each sockets per node
 	IPStack          IPStack
 	SocketIDToConn   map[uint32]*FourTuple
-	Channel          chan *TCPConn
 }
 
 func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
@@ -111,7 +112,6 @@ func (tcpStack *TCPStack) Initialize(localIP netip.Addr, ipStack *IPStack) {
 }
 
 func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
-	fmt.Println("In TCP Handler")
 	// Retrieve the IP header and IP payload (which contains TCP header and TCP payload)
 	ipHdr := packet.Header
 	tcpHeaderAndData := packet.Payload
@@ -148,6 +148,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				// updating ACK #
 				tcpConn.ACK = tcpHdr.SeqNum + 1
 
+				tcpConn.OtherSideISN = tcpHdr.SeqNum
+
 				// sending ACK back
 				err := tcpConn.sendTCP([]byte{}, uint32(header.TCPFlagAck), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				if err != nil {
@@ -170,25 +172,18 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		case "ESTABLISHED":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				fmt.Println("I am in ESTABLISHED and calling a func")
-				fmt.Println(tcpHdr.SeqNum)
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			} else if tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin {
 				// Ensure that this receiver has received all the data from the sender
 				// (i.e. tcpHdr.AckNum == uint32(tcpConn.RecvBuf.NXT))
-				fmt.Println("I am in ESTABLISHED and calling a func 2")
-				fmt.Println(tcpHdr.SeqNum)
+				tcpConn.OtherSideLastSeq = tcpHdr.SeqNum
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 				tcpConn.State = "CLOSE_WAIT"
-				tcpConn.IsClosing = true
 			}
 		case "FIN_WAIT_1":
 			if tcpHdr.Flags == header.TCPFlagAck {
-				fmt.Println("tcpHdr.Ack Num  = " + strconv.Itoa(int(tcpHdr.AckNum-tcpConn.ISN)))
-				fmt.Println("seq num = " + strconv.Itoa(int(tcpConn.SeqNum-tcpConn.ISN)))
-				fmt.Println("seq num + 1 = " + strconv.Itoa(int(tcpConn.SeqNum-tcpConn.ISN+1)))
 				if tcpHdr.AckNum == tcpConn.SeqNum {
 					// got the ack back for the FIN ACK, can go into FIN WAIT 2
 					tcpConn.State = "FIN_WAIT_2"
@@ -199,14 +194,8 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			}
 		// Other party has initiated close, but we can still receive data (and should send ACKs back)
 		case "CLOSE_WAIT":
-			if tcpHdr.Flags == header.TCPFlagAck|header.TCPFlagFin && len(tcpPayload) == 0 {
-				fmt.Println("t")
+			if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
-				tcpStack.HandleACK(packet, tcpHdr, tcpConn, 0)
-			} else if tcpHdr.Flags == header.TCPFlagAck && len(tcpPayload) > 0 {
-				fmt.Println("e")
-				fmt.Println(tcpHdr.SeqNum)
-				tcpConn.RTStruct.handleRetransmission(tcpHdr.AckNum)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
 			}
 		case "FIN_WAIT_2":
@@ -249,6 +238,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 			// Create new normal socket + its send/rec bufs
 			// Add new normal socket to tcp stack's table
 			newTcpConn := tcpStack.CreateNewNormalConn(tcpHdr, ipHdr)
+			newTcpConn.OtherSideISN = tcpHdr.SeqNum
 
 			// Send a SYN-ACK back to client
 			flags := header.TCPFlagSyn | header.TCPFlagAck
@@ -272,19 +262,15 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 	// add new normal socket to tcp stack's table
 	seqNum := rand.Uint32()
 	SendBuf := &TCPSendBuf{
-		Buffer:  make([]byte, BUFFER_SIZE),
-		UNA:     0,
-		NXT:     0,
-		LBW:     -1,
-		Channel: make(chan bool), // TODO subject to change
+		Buffer: make([]byte, BUFFER_SIZE),
+		UNA:    0,
+		NXT:    0,
+		LBW:    -1,
 	}
 	RecvBuf := &TCPRecvBuf{
-		Buffer:   make([]byte, BUFFER_SIZE),
-		NXT:      0,
-		LBR:      -1,
-		FIN:      -1,
-		Waiting:  false,
-		ChanSent: false,
+		Buffer: make([]byte, BUFFER_SIZE),
+		NXT:    0,
+		LBR:    -1,
 	}
 
 	// creating RTStruct
@@ -318,6 +304,9 @@ func (tcpStack *TCPStack) CreateNewNormalConn(tcpHdr header.TCPFields, ipHdr ipv
 		ReceiverWin:       BUFFER_SIZE,
 		EarlyArrivals:     make(map[uint32]*EarlyArrivalPacket),
 		RTStruct:          RTStruct,
+		OtherSideLastSeq:  0,
+		IsClosing:         false,
+		OtherSideISN:      0,
 	}
 
 	// Add the new normal socket to tcp stack's connections table
@@ -347,8 +336,11 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 			return
 		} else if tcpHdr.SeqNum < tcpConn.ACK {
-			// send ack back, duplicate ack likely, don't increment anything
+			// send ack back, duplicate data likely, don't increment anything
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if (tcpConn.OtherSideLastSeq != 0) && (tcpConn.ACK == uint32(tcpConn.OtherSideLastSeq)+1) {
+				tcpConn.IsClosing = true
+			}
 			return
 
 			// EARLY ARRIVAL
@@ -359,10 +351,11 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				PacketData: tcpPayload,
 			}
 			tcpConn.EarlyArrivals[tcpHdr.SeqNum] = earlyArrivalPacket
-			fmt.Println("I am sending an ack back because you sent me an early arrival")
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if (tcpConn.OtherSideLastSeq != 0) && (tcpConn.ACK == uint32(tcpConn.OtherSideLastSeq)+1) {
+				tcpConn.IsClosing = true
+			}
 		} else {
-			fmt.Println("ITERATION ONE")
 			// SEQ NUM = ACK NUM
 			// Copy data into receive buffer
 			if len(tcpPayload) > 0 {
@@ -373,14 +366,12 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				tcpConn.RecvBuf.NXT += uint32(len(tcpPayload))
 				tcpConn.CurWindow -= uint16(len(tcpPayload))
 				tcpConn.ACK += uint32(len(tcpPayload))
-				fmt.Println("1 REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 			}
 
 			if tcpHdr.Flags == (header.TCPFlagAck | header.TCPFlagFin) {
 				// receiving FIN + ACK which has len 0
 				// tcpConn.RecvBuf.FIN = int32(tcpConn.RecvBuf.NXT)
 				// tcpConn.RecvBuf.NXT += 1
-				fmt.Println("REC BUF NXT = " + strconv.Itoa(int(tcpConn.RecvBuf.NXT)))
 				tcpConn.ACK += 1
 			}
 
@@ -416,8 +407,10 @@ func (tcpConn *TCPConn) handleReceivedData(tcpPayload []byte, tcpHdr header.TCPF
 				tcpConn.RecvBufferHasData <- true
 			}
 			// Send a normal ACK back
-			fmt.Println("I am sending back a normal ACK")
 			tcpConn.sendTCP([]byte{}, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			if (tcpConn.OtherSideLastSeq != 0) && (tcpConn.ACK == uint32(tcpConn.OtherSideLastSeq)+1) {
+				tcpConn.IsClosing = true
+			}
 		}
 	}
 
@@ -429,14 +422,13 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 
 	tcpConn.ReceiverWin = uint32(header.WindowSize)
 
+	tcpConn.RTStruct.handleRetransmission(header.AckNum)
+
 	if uint16(payloadLen) > tcpConn.CurWindow {
 		// if received zero window probe, don't update UNA
 		return
 	}
-	// fmt.Println("ACK = " + strconv.Itoa(int(ACK)))
-	// fmt.Println("ISN = " + strconv.Itoa(int(tcpConn.ISN)))
-	// fmt.Println("UNA + 1 = " + strconv.Itoa(int((tcpConn.SendBuf.UNA+1))))
-	// fmt.Println("NXT + 1 = " + strconv.Itoa(int((tcpConn.SendBuf.NXT+1))))
+	fmt.Println("IN HANDLE ACK")
 	if uint32(tcpConn.SendBuf.UNA+1) < ACK && ACK <= uint32(tcpConn.SendBuf.NXT+1) {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum
@@ -444,7 +436,6 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		if len(tcpConn.SendSpaceOpen) == 0 {
 			tcpConn.SendSpaceOpen <- true
 		}
-		tcpConn.RTStruct.handleRetransmission(header.AckNum)
 
 	} else {
 		// invalid ack number, maybe duplicate
@@ -456,22 +447,25 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
 	// removing packets to retransmit based on new ACK
 	splitIndex := -1 //represents the last packet that can be removed from RTQueue
+	ackPacketIndex := -1
 	for index, packet := range rtStruct.RTQueue {
 		if packet != nil {
 			if packet.SeqNum < ackNum {
 				splitIndex = index
+			} else if packet.SeqNum+uint32(len(packet.Data)) == ackNum {
+				ackPacketIndex = index
 			} else {
 				break
 			}
 		}
 	}
-	// This means that there is something to be removed from the retransmission queue
-	if splitIndex >= 0 {
 
-		if rtStruct.RTQueue[splitIndex].NumTries == 0 {
+	// recalc RTO if necessary
+	if ackPacketIndex >= 0 {
+		if rtStruct.RTQueue[ackPacketIndex].NumTries == 0 {
 			// only do this if ack is NOT for retransmitted segment
 			// Calculate RTT and SRTT
-			recentPacketTime := rtStruct.RTQueue[splitIndex].Timestamp
+			recentPacketTime := rtStruct.RTQueue[ackPacketIndex].Timestamp
 			rtt := time.Since(recentPacketTime)
 
 			if rtStruct.SRTT == -1*time.Second {
@@ -488,9 +482,13 @@ func (rtStruct *Retransmits) handleRetransmission(ackNum uint32) {
 			// Restart timer with re-calculated RTO
 			rtStruct.RTOTimer.Reset(rtStruct.RTO)
 		}
+	}
 
+	// This means that there is something to be removed from the retransmission queue
+	if splitIndex >= 0 {
 		// packets to be removed from RTQueue
 		if splitIndex+1 == len(rtStruct.RTQueue) {
+
 			rtStruct.RTQueue = []*RTPacket{}
 		} else {
 			rtStruct.RTQueue = rtStruct.RTQueue[splitIndex+1:]

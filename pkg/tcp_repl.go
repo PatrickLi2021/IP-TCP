@@ -74,7 +74,7 @@ func (tcpStack *TCPStack) RCommand(socketID uint32, numBytes uint32) {
 	tcpConn := tcpStack.ConnectionsTable[*fourTuple]
 	appBuffer := make([]byte, BUFFER_SIZE)
 	bytesRead, _ := tcpConn.VRead(appBuffer, numBytes)
-	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer[:bytesRead]))
+	fmt.Println("Read " + strconv.Itoa(bytesRead) + " bytes: " + string(appBuffer))
 }
 
 func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint16) error {
@@ -139,9 +139,9 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	}
 	defer outFile.Close()
 
-	bytesReceived := 0
-	for bytesReceived < 1216865 {
-		// Calculate how much data can be read in
+	go tcpConn.SendSegment()
+
+	for (tcpConn.OtherSideLastSeq == 0) || (tcpConn.OtherSideLastSeq != 0) && tcpConn.RecvBuf.LBR < (int32(tcpConn.OtherSideLastSeq)-int32(tcpConn.OtherSideISN)-2) { // Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
 			<-tcpConn.RecvBufferHasData // Block until data is available
@@ -156,15 +156,13 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 			return err
 		}
 		if n != 0 {
-			bytesWritten, write_err := outFile.Write(buf[:n])
-			bytesReceived += bytesWritten
+			_, write_err := outFile.Write(buf[:n])
 			if write_err != nil {
 				fmt.Println(err)
 				return err
 			}
 		}
 	}
-	fmt.Println("RF DONE")
 	return tcpConn.VClose()
 }
 

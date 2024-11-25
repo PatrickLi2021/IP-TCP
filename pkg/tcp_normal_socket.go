@@ -2,9 +2,10 @@ package protocol
 
 import (
 	"fmt"
-	"github.com/google/netstack/tcpip/header"
 	"io"
 	"time"
+
+	"github.com/google/netstack/tcpip/header"
 )
 
 const (
@@ -85,8 +86,8 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 		// tcpConn.SendBuf.LBW += 1
 		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW + 1
 		if len(tcpConn.SendBufferHasData) == 0 {
-			fmt.Println("triggered the channel")
 			tcpConn.SendBufferHasData <- true
+			fmt.Println("SEND BUF HAS DATA")
 		}
 	}
 	return len(originalDataToSend), nil
@@ -96,17 +97,15 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 func (tcpConn *TCPConn) SendSegment() {
 	for {
 		// Block until new data is available in the send buffer
-		fmt.Println("Before")
 		<-tcpConn.SendBufferHasData
-		fmt.Println("After")
 		bytesToSend := tcpConn.SendBuf.LBW - tcpConn.SendBuf.NXT + 1
 		// We continue sending, either for normal data or for ZWP
 		bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-		fmt.Println("100")
 		for bytesToSend > 0 && tcpConn.ReceiverWin-bytesInFlight >= 0 && tcpConn.State != "FIN_WAIT_2" {
-			fmt.Println("99")
 
 			// Zero-Window Probing
+			fmt.Println("in SEND SEG, WIN = ")
+			fmt.Println(tcpConn.ReceiverWin)
 			if tcpConn.ReceiverWin == 0 {
 				tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
 				tcpConn.SendBuf.NXT += 1
@@ -120,7 +119,6 @@ func (tcpConn *TCPConn) SendSegment() {
 					payloadBuf[i] = tcpConn.SendBuf.Buffer[tcpConn.SendBuf.NXT%BUFFER_SIZE]
 					tcpConn.SendBuf.NXT += 1
 				}
-				fmt.Println("I am sending a packet")
 				tcpConn.sendTCP(payloadBuf, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				tcpConn.SeqNum += uint32(payloadSize)
 				tcpConn.TotalBytesSent += uint32(payloadSize)
@@ -151,16 +149,30 @@ func (tcpConn *TCPConn) SendSegment() {
 		}
 
 		// Check to see if FIN == LBW
-		fmt.Println("doing the check")
 		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW+1 {
 			flags := header.TCPFlagFin | header.TCPFlagAck
-			fmt.Println("I am calling sendsegment to transmit my FIN")
 			tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
+			fmt.Println("Just sent the FIN")
 			if tcpConn.State == "CLOSE_WAIT" {
 				tcpConn.State = "LAST_ACK"
 			} else if tcpConn.State == "ESTABLISHED" {
 				tcpConn.State = "FIN_WAIT_1"
 			}
+			// RETRANSMIT
+			// Create packet and add to queue
+			rtPacket := &RTPacket{
+				Timestamp: time.Now(),
+				SeqNum:    tcpConn.SeqNum,
+				AckNum:    tcpConn.ACK,
+				Data:      []byte{},
+				Flags:     header.TCPFlagAck | header.TCPFlagFin,
+				NumTries:  0,
+			}
+			tcpConn.RTStruct.RTQueue = append(tcpConn.RTStruct.RTQueue, rtPacket)
+
+			// Start RTO timer
+			tcpConn.RTStruct.RTOTimer.Reset(tcpConn.RTStruct.RTO)
+
 			tcpConn.SeqNum += 1
 			tcpConn.SendBuf.NXT += 1
 			tcpConn.SendBuf.LBW += 1
@@ -170,7 +182,11 @@ func (tcpConn *TCPConn) SendSegment() {
 
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize {
+	fmt.Println("In ZWP function")
+	fmt.Println(tcpConn.ReceiverWin)
+	fmt.Println(bytesInFlight)
+	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize || (tcpConn.ReceiverWin == 0 && bytesInFlight > 0) {
+		fmt.Println("In ZWP for loop")
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -181,16 +197,15 @@ func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 }
 
 func (tcpConn *TCPConn) VClose() error {
+	fmt.Println("In VClose")
 	// Check to see if conn is already in a closing state
 	if tcpConn.State == "CLOSED" || tcpConn.State == "TIME_WAIT" || tcpConn.State == "LAST_ACK" || tcpConn.State == "CLOSING" {
-		fmt.Println("I am in here")
 		return nil
 	}
 
 	// If not, send FIN by setting BUF FIN flag
 
 	_, err := tcpConn.VWrite([]byte{}, true)
-	fmt.Println("I called VWrite to send the FIN Flag")
 	if err != nil {
 		return err
 	}
@@ -203,6 +218,7 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 		select {
 		// If ticker doesn't fire within RTO, retransmit
 		case <-rtStruct.RTOTimer.C:
+			fmt.Println("timer expired")
 			if len(rtStruct.RTQueue) > 0 {
 				queueHead := rtStruct.RTQueue[0]
 				// Close socket by deleting/removing socket entry
@@ -217,11 +233,10 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 					delete(tcpConn.TCPStack.ConnectionsTable, fourTuple)
 					return
 				}
-				fmt.Println("ACTUALLY SENDING RETRANSMIt")
 				tcpConn.sendTCP(queueHead.Data, queueHead.Flags, queueHead.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
 				// Increment numTries
 				queueHead.NumTries++
-				rtStruct.RTO = max(2*rtStruct.RTO, RTO_MAX)
+				rtStruct.RTO = min(2*rtStruct.RTO, RTO_MAX)
 			} else {
 				// RT queue is empty
 				// Nothing to retransmit
