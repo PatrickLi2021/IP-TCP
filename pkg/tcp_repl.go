@@ -10,16 +10,17 @@ import (
 func (tcpStack *TCPStack) ListSockets() {
 	fmt.Println("SID  LAddr           LPort      RAddr          RPort    Status")
 	// Loop through all sockets on this node
-	for i := 0; i < int(len(tcpStack.ListenTable)+len(tcpStack.ConnectionsTable)); i++ {
-		fourTuple := tcpStack.SocketIDToConn[uint32(i)]
+	for id, fourTuple := range tcpStack.SocketIDToConn {
+	// for i := 0; i < int(len(tcpStack.ListenTable)+len(tcpStack.ConnectionsTable)); i++ {
+		// fourTuple := tcpStack.SocketIDToConn[uint32(i)]
 		tcpConn, connExists := tcpStack.ConnectionsTable[*fourTuple]
 		if connExists {
-			tcpConn.ID = uint16(i)
+			tcpConn.ID = uint32(id)
 			fmt.Println(strconv.Itoa(int(tcpConn.ID)) + "    " + fourTuple.srcAddr.String() + "        " + strconv.Itoa(int(fourTuple.srcPort)) + "      " + fourTuple.remoteAddr.String() + "       " + strconv.Itoa(int(fourTuple.remotePort)) + "     " + tcpConn.State)
 		} else {
 			listener, exists := tcpStack.ListenTable[fourTuple.srcPort]
 			if exists {
-				listener.ID = uint16(i)
+				listener.ID = uint32(id)
 			}
 			if !exists {
 				fmt.Println()
@@ -46,7 +47,6 @@ func (tcpStack *TCPStack) ACommand(port uint16) {
 		}
 		go tcpConn.CheckRTOTimer()
 		go tcpConn.SendSegment()
-		fmt.Println("listen conn created")
 	}
 }
 
@@ -163,10 +163,15 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 			}
 		}
 	}
-	return tcpConn.VClose()
+	err = tcpConn.VClose()
+
+	// delete listen socket
+	delete(tcpStack.ListenTable, tcpListener.LocalPort)
+	delete(tcpStack.SocketIDToConn, tcpConn.ID)
+	return err
 }
 
-func (tcpStack *TCPStack) CloseCommand(socketId uint16) error {
+func (tcpStack *TCPStack) CloseCommand(socketId uint32) error {
 	for _, tcpConn := range tcpStack.ConnectionsTable {
 		// Find the TCPConn with the given ID and close it
 		if tcpConn.ID == socketId {

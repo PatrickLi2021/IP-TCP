@@ -1,10 +1,5 @@
 package protocol
 
-import (
-	"fmt"
-	"strconv"
-)
-
 const BUFFER_SIZE = 65535
 
 type TCPSendBuf struct {
@@ -44,7 +39,5 @@ func (sendBuf *TCPSendBuf) CalculateRemainingSendBufSpace() int {
 
 func (recBuf *TCPRecvBuf) CalculateOccupiedRecvBufSpace() int32 {
 	// assumption that NXT will always be > LBR
-	fmt.Println("NXT = " + strconv.Itoa(int(recBuf.NXT)))
-	fmt.Println("LBR = " + strconv.Itoa(int(recBuf.LBR)))
 	return (int32(recBuf.NXT) - recBuf.LBR - 1)
 }

@@ -144,7 +144,7 @@ func main() {
 			go tcpStack.RfCommand(filePath, port)
 		} else if len(userInput) >= 4 && userInput[0:2] == "cl" {
 			parsedUint, _ := strconv.ParseUint(userInput[3:], 10, 16)
-			socketId := uint16(parsedUint)
+			socketId := uint32(parsedUint)
 			tcpStack.CloseCommand(socketId)
 		} else {
 			fmt.Println("Invalid command.")

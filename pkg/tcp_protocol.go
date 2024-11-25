@@ -48,7 +48,7 @@ type RTPacket struct {
 }
 
 type TCPListener struct {
-	ID          uint16
+	ID          uint32
 	State       string
 	LocalPort   uint16
 	LocalAddr   netip.Addr
@@ -59,7 +59,7 @@ type TCPListener struct {
 }
 
 type TCPConn struct {
-	ID                uint16
+	ID                uint32
 	State             string
 	LocalPort         uint16
 	LocalAddr         netip.Addr
@@ -94,7 +94,7 @@ type TCPStack struct {
 	ListenTable      map[uint16]*TCPListener
 	ConnectionsTable map[FourTuple]*TCPConn
 	IP               netip.Addr
-	NextSocketID     uint16 // unique ID for each sockets per node
+	NextSocketID     uint32 // unique ID for each sockets per node
 	IPStack          IPStack
 	SocketIDToConn   map[uint32]*FourTuple
 }
@@ -206,6 +206,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 				time.Sleep(5 * time.Second)
 				tcpConn.State = "CLOSED"
 				delete(tcpStack.ConnectionsTable, fourTuple)
+				delete(tcpStack.SocketIDToConn, tcpConn.ID)
 			} else if tcpHdr.Flags == header.TCPFlagAck {
 				tcpConn.handleReceivedData(tcpPayload, tcpHdr)
 				tcpStack.HandleACK(packet, tcpHdr, tcpConn, len(tcpPayload))
@@ -226,7 +227,7 @@ func (tcpStack *TCPStack) TCPHandler(packet *IPPacket) {
 					// ack back for FIN ACK
 					tcpConn.State = "CLOSED"
 					delete(tcpStack.ConnectionsTable, fourTuple)
-					fmt.Println("This socket is closed")
+					delete(tcpStack.SocketIDToConn, tcpConn.ID)
 				}
 			}
 		}
@@ -428,7 +429,6 @@ func (tcpStack *TCPStack) HandleACK(packet *IPPacket, header header.TCPFields, t
 		// if received zero window probe, don't update UNA
 		return
 	}
-	fmt.Println("IN HANDLE ACK")
 	if uint32(tcpConn.SendBuf.UNA+1) < ACK && ACK <= uint32(tcpConn.SendBuf.NXT+1) {
 		// valid ack number, RFC 3.4
 		// tcpConn.ACK = header.SeqNum

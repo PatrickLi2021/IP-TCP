@@ -87,7 +87,6 @@ func (tcpConn *TCPConn) VWrite(data []byte, finFlag bool) (int, error) {
 		tcpConn.SendBuf.FIN = tcpConn.SendBuf.LBW + 1
 		if len(tcpConn.SendBufferHasData) == 0 {
 			tcpConn.SendBufferHasData <- true
-			fmt.Println("SEND BUF HAS DATA")
 		}
 	}
 	return len(originalDataToSend), nil
@@ -104,8 +103,6 @@ func (tcpConn *TCPConn) SendSegment() {
 		for bytesToSend > 0 && tcpConn.ReceiverWin-bytesInFlight >= 0 && tcpConn.State != "FIN_WAIT_2" {
 
 			// Zero-Window Probing
-			fmt.Println("in SEND SEG, WIN = ")
-			fmt.Println(tcpConn.ReceiverWin)
 			if tcpConn.ReceiverWin == 0 {
 				tcpConn.ZeroWindowProbe(tcpConn.SendBuf.NXT)
 				tcpConn.SendBuf.NXT += 1
@@ -152,7 +149,6 @@ func (tcpConn *TCPConn) SendSegment() {
 		if tcpConn.SendBuf.NXT == tcpConn.SendBuf.FIN && tcpConn.SendBuf.FIN == tcpConn.SendBuf.LBW+1 {
 			flags := header.TCPFlagFin | header.TCPFlagAck
 			tcpConn.sendTCP([]byte{}, uint32(flags), tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
-			fmt.Println("Just sent the FIN")
 			if tcpConn.State == "CLOSE_WAIT" {
 				tcpConn.State = "LAST_ACK"
 			} else if tcpConn.State == "ESTABLISHED" {
@@ -182,11 +178,7 @@ func (tcpConn *TCPConn) SendSegment() {
 
 func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 	bytesInFlight := uint32(tcpConn.SendBuf.NXT - tcpConn.SendBuf.UNA)
-	fmt.Println("In ZWP function")
-	fmt.Println(tcpConn.ReceiverWin)
-	fmt.Println(bytesInFlight)
 	for tcpConn.ReceiverWin-bytesInFlight < maxPayloadSize || (tcpConn.ReceiverWin == 0 && bytesInFlight > 0) {
-		fmt.Println("In ZWP for loop")
 		nextByte := tcpConn.SendBuf.Buffer[nxt%BUFFER_SIZE]
 		probePayload := []byte{nextByte}
 		tcpConn.sendTCP(probePayload, header.TCPFlagAck, tcpConn.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
@@ -197,7 +189,6 @@ func (tcpConn *TCPConn) ZeroWindowProbe(nxt int32) {
 }
 
 func (tcpConn *TCPConn) VClose() error {
-	fmt.Println("In VClose")
 	// Check to see if conn is already in a closing state
 	if tcpConn.State == "CLOSED" || tcpConn.State == "TIME_WAIT" || tcpConn.State == "LAST_ACK" || tcpConn.State == "CLOSING" {
 		return nil
@@ -218,7 +209,6 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 		select {
 		// If ticker doesn't fire within RTO, retransmit
 		case <-rtStruct.RTOTimer.C:
-			fmt.Println("timer expired")
 			if len(rtStruct.RTQueue) > 0 {
 				queueHead := rtStruct.RTQueue[0]
 				// Close socket by deleting/removing socket entry
@@ -229,8 +219,8 @@ func (tcpConn *TCPConn) CheckRTOTimer() {
 						srcPort:    tcpConn.LocalPort,
 						srcAddr:    tcpConn.LocalAddr,
 					}
-					fmt.Println("socket deleted - max retries exceeded")
 					delete(tcpConn.TCPStack.ConnectionsTable, fourTuple)
+					delete(tcpConn.TCPStack.SocketIDToConn, tcpConn.ID)
 					return
 				}
 				tcpConn.sendTCP(queueHead.Data, queueHead.Flags, queueHead.SeqNum, tcpConn.ACK, tcpConn.CurWindow)
