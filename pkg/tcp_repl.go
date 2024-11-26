@@ -8,7 +8,6 @@ import (
 )
 
 func (tcpStack *TCPStack) ListSockets() {
-	fmt.Println(len(tcpStack.SocketIDToConn))
 	fmt.Println("SID  LAddr           LPort      RAddr          RPort    Status")
 	// Loop through all sockets on this node
 	for _, fourTuple := range tcpStack.SocketIDToConn {
@@ -118,7 +117,9 @@ func (tcpStack *TCPStack) SfCommand(filepath string, addr netip.Addr, port uint1
 		bytesWritten, _ := tcpConn.VWrite(data, false)
 		bytesSent += bytesWritten
 	}
-	return tcpConn.VClose()
+	err = tcpConn.VClose()
+	fmt.Println("Sent " + strconv.Itoa(bytesSent) + " bytes")
+	return err
 }
 
 func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
@@ -136,6 +137,8 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 
 	go tcpConn.SendSegment()
 
+	bytesReceived := 0
+
 	for (tcpConn.OtherSideLastSeq == 0) || (tcpConn.OtherSideLastSeq != 0) && tcpConn.RecvBuf.LBR < (int32(tcpConn.OtherSideLastSeq)-int32(tcpConn.OtherSideISN)-2) { // Calculate how much data can be read in
 		toRead := tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		for toRead <= 0 {
@@ -146,6 +149,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 		toRead = tcpConn.RecvBuf.CalculateOccupiedRecvBufSpace()
 		buf := make([]byte, toRead)
 		n, err := tcpConn.VRead(buf, uint32(toRead))
+		bytesReceived += n
 		if err != nil {
 			fmt.Println(err)
 			return err
@@ -164,6 +168,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	delete(tcpStack.ListenTable, tcpListener.LocalPort)
 	delete(tcpStack.SocketIDToConn, tcpConn.ID)
 	delete(tcpStack.SocketIDToConn, tcpListener.ID)
+	fmt.Println("Received " + strconv.Itoa(bytesReceived) + " bytes")
 	return err
 }
 
@@ -174,12 +179,10 @@ func (tcpStack *TCPStack) CloseCommand(socketId uint32) error {
 			// listener
 			delete(tcpStack.ListenTable, tuple.srcPort)
 			delete(tcpStack.SocketIDToConn, socketId)
-			fmt.Println("DELETED LISTENER")
 			return nil
 		} else {
 			// normal socket
 			tcpConn := tcpStack.ConnectionsTable[*tuple]
-			fmt.Println("DELETED NORMAL")
 			return tcpConn.VClose()
 		}
 	}
