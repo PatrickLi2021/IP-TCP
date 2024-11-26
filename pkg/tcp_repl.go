@@ -8,20 +8,15 @@ import (
 )
 
 func (tcpStack *TCPStack) ListSockets() {
+	fmt.Println(len(tcpStack.SocketIDToConn))
 	fmt.Println("SID  LAddr           LPort      RAddr          RPort    Status")
 	// Loop through all sockets on this node
-	for id, fourTuple := range tcpStack.SocketIDToConn {
-	// for i := 0; i < int(len(tcpStack.ListenTable)+len(tcpStack.ConnectionsTable)); i++ {
-		// fourTuple := tcpStack.SocketIDToConn[uint32(i)]
+	for _, fourTuple := range tcpStack.SocketIDToConn {
 		tcpConn, connExists := tcpStack.ConnectionsTable[*fourTuple]
 		if connExists {
-			tcpConn.ID = uint32(id)
 			fmt.Println(strconv.Itoa(int(tcpConn.ID)) + "    " + fourTuple.srcAddr.String() + "        " + strconv.Itoa(int(fourTuple.srcPort)) + "      " + fourTuple.remoteAddr.String() + "       " + strconv.Itoa(int(fourTuple.remotePort)) + "     " + tcpConn.State)
 		} else {
 			listener, exists := tcpStack.ListenTable[fourTuple.srcPort]
-			if exists {
-				listener.ID = uint32(id)
-			}
 			if !exists {
 				fmt.Println()
 				return
@@ -168,6 +163,7 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 	// delete listen socket
 	delete(tcpStack.ListenTable, tcpListener.LocalPort)
 	delete(tcpStack.SocketIDToConn, tcpConn.ID)
+	delete(tcpStack.SocketIDToConn, tcpListener.ID)
 	return err
 }
 
@@ -179,7 +175,12 @@ func (tcpStack *TCPStack) CloseCommand(socketId uint32) error {
 			if err != nil {
 				return err
 			}
+			return err
 		}
+	}
+	tuple, ok := tcpStack.SocketIDToConn[socketId]
+	if ok {
+		delete(tcpStack.ListenTable, tuple.srcPort)
 	}
 	return nil
 }
