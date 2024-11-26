@@ -168,19 +168,20 @@ func (tcpStack *TCPStack) RfCommand(filepath string, port uint16) error {
 }
 
 func (tcpStack *TCPStack) CloseCommand(socketId uint32) error {
-	for _, tcpConn := range tcpStack.ConnectionsTable {
-		// Find the TCPConn with the given ID and close it
-		if tcpConn.ID == socketId {
-			err := tcpConn.VClose()
-			if err != nil {
-				return err
-			}
-			return err
-		}
-	}
 	tuple, ok := tcpStack.SocketIDToConn[socketId]
 	if ok {
-		delete(tcpStack.ListenTable, tuple.srcPort)
+		if tuple.remotePort == 0 {
+			// listener
+			delete(tcpStack.ListenTable, tuple.srcPort)
+			delete(tcpStack.SocketIDToConn, socketId)
+			fmt.Println("DELETED LISTENER")
+			return nil
+		} else {
+			// normal socket
+			tcpConn := tcpStack.ConnectionsTable[*tuple]
+			fmt.Println("DELETED NORMAL")
+			return tcpConn.VClose()
+		}
 	}
 	return nil
 }
