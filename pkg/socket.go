@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/netip"
@@ -111,6 +112,27 @@ func (stack *TCPStack) VConnect(remoteAddr netip.Addr, remotePort uint16) (*TCPC
 	if err != nil {
 		fmt.Println("Could not sent SYN packet")
 		return nil, err
+	}
+	retransmits := 0
+	for tcpConn.State == "SYN_SENT" && retransmits < 3{
+		time.Sleep(3*time.Second)
+		if (tcpConn.State == "ESTABLISHED") {
+			break
+		} else {
+			err := tcpConn.sendTCP([]byte{}, header.TCPFlagSyn, uint32(tcpConn.SeqNum), 0, tcpConn.CurWindow)
+			if err != nil {
+				fmt.Println("Could not sent SYN packet")
+				return nil, err
+			}
+			retransmits += 1
+		}
+	}
+	if (tcpConn.State == "SYN_SENT") {
+		// failed
+		delete(stack.ConnectionsTable, *fourTuple)
+		delete(stack.SocketIDToConn, tcpConn.ID)
+		fmt.Println("Error: Retransmitted SYN 3x and failed.")
+		return nil, errors.New("retransmitted SYN 3x")
 	}
 	tcpConn.SeqNum += 1
 	return tcpConn, nil
