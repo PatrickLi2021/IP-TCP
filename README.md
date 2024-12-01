@@ -49,3 +49,71 @@ The overall structure of our router file is the same as the host file. However, 
 
 ### Known Bugs
 Nothing we are aware of. 
+
+
+# TCP Design
+
+## Connection Structs
+First, we implemented a TCPStack struct, which most notably has fields ListenTable, ConnectionsTable, and IP. ListenTable maps a port to a struct representing a listener socket. The ConnectionsTable struct maps a four tuple (remote port, remote address, source port, source address) to a struct representing a normal socket.
+
+Then to represent a connection, we created 2 distinct structs: one for a listener socket and the other for a normal socket.
+
+### TCPListener
+- The first struct we created was the TCPListener struct to represent a listener socket. 
+- This struct was simple and is comprised of state variables, such as Local Port, Local Addr, etc. Most importantly was the field for TCPStack, which holds the ListenTable and ConnectionsTable for the listener socket to look up incoming connections or create a new normal connection.
+
+### TCPConn
+- The second struct we created was the TCPConn struct to represent a normal socket.
+- This struct has state fields, such as LocalPort, LocalAdr, SeqNum, ACK, ISN (initial seq num), CurWindow, ReceiverWin, etc. These fields all help the conn track information needed to communicate with the other connection
+- Some more important fields include the SendBuf and RecvBuf, which are used to track what information to send and receive. We implemented our own circular buffer from a byte slice, where the pointers are 0-indexed and are not-relative to the indices in the buffer. The pointers grow and when we index into the buffer, we will mod by the buffer-size. 
+- Next, we use a map from seq num to early arrival packet data to track our early arrivals. 
+- Lastly, we use an RTStruct to track retransmissions.
+
+### RTStruct
+- The RTStruct has several state fields, such as SRTT, Alpha, Beta, and RTO that are used in calculating the new value for the RTOTimer, which is a time.Ticker.
+- To actually track the retransmissions to be re-sent, we use a slice of *RTPacket. 
+
+### RTPacket
+- The RTPacket represents one packet that needs to be retransmitted.
+- The fields include a Timestamp, SeqNum, AckNum, Data, Flags, and NumTries, which tracks how many times we have already retransmitted the packet.
+
+## Threads
+
+### Sending/Receiving
+- To send or whenever a new connection is established, we first start a thread called CheckRTOTimer(), which will retransmit packets (if any) when the timer expires. Secondly, we start a thread called SendSegment(), which loops forever but uses a channel to block until there is data in the conn's send buffer. Data will be present in the send buffer is the user tries to send, which calls a function VWrite to write into the send buffer. 
+- Receiving data is part of the TCPHandler function that is called through our IPStack when a packet is at its destination. We have registered this handler function when our IPStack is initialized. When data reaches the destination, we write this data into the connection's receive buffer. To read from the receiver buffer, we call VRead, which will adjust the buffer pointers and return the bytes read.
+- Slight exceptions to this occur with the sf and rf commands. The rf command triggers an RFCommand() thread, which will call VRead and write the data to a file in a for loop until the other connection initiates a close. The sf command also triggers an SFCommand() thread, which will start the SendSegment() thread and continuously call VWrite in a for loop until it has written all file contents. 
+
+### Retransmissions
+- The only extra thread created is called CheckRTOTimer, which retransmits packets (if any) when the timer expires. 
+- The remaining, necessary retransmission logic is handled throughout the rest of the TCP Code. For instance, in SendSegment() we will add any packets sent to the retranmission queue and restart the timer. Additionally, within TCPHandler, we call a function to remove ACK'd packets from the retransmission queue.
+
+### Early Arrivals
+- We don't add any additional threads for early arrivals. The logic is again incorporated into our TCP Code. Within TCPHandler, we check the incoming packet's seq number against our next expected seq num. If it is an early arrival we add it to our map. When we do receive what we expect, we consult the early arrivals map to reconstruct as much data as we can, write it into the receive buffer, and delete it from the early arrivals map.
+
+## Improvements
+- If we could redo this assignment again, we would probably use a sync map or other packages in Go that could make our code concurrency-safe because it might be easier than adding manual locks. We think something that slowed our performance down was how we loop through retransmissions when deleting them from the queue. Instead, it might have been easier to utilize a data structure like a priority queue instead of a slice, where the lowest sequence number would have highest priority. 
+
+## Bugs
+- To the best of our knowledge (we ran the code so many times on files >= 1 MB before calling the project done), we did not see any bugs before submitting.
+- It is possible that since we have no manual locking, that there could be concurrency bugs? Although we have never run into this issue before. 
+
+## Performance Measurements
+We sent a file of size 1,189,921 bytes. The reference sent the file in 0.07698 seconds. Our implementation sent the file in 7.05259 seconds.
+
+## Packet Capture
+### 3-way Handshake: 
+- Packet capture lines: 1, 2, 3
+- Implementation is responding appropriately
+
+### One Segment Sent and Acknowledged
+- Packet capture line (sent): 4
+- Packet capture line (acknowledged): 13
+- Implementation is responding appropriately
+
+### Retransmission
+- Packet capture line: 118
+- Implementation is responding appropriately
+
+### Connection Teardown
+- Packet capture lines: 1766, 1787, 1788, 1789
