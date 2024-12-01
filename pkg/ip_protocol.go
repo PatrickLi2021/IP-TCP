@@ -305,9 +305,7 @@ func (stack *IPStack) Receive(iface *Interface) error {
 	}
 	// packet payload
 	message := buffer[hdrSize:hdr.TotalLen]
-	// TODO:
-	// TotalLen
-	// message = bytes.TrimRight(message, "\x00")
+
 	// check packet's dest ip
 	correctDest := hdr.Dst == iface.IP
 	for interIP := range stack.Interfaces {

@@ -9,7 +9,6 @@ type TCPSendBuf struct {
 	LBW     int32 // Represents data written into the buffer via VWrite() (updated by app)
 	Rec_win int32
 	FIN     int32
-	Channel chan bool
 }
 
 type TCPRecvBuf struct {
