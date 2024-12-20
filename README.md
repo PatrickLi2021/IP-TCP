@@ -31,4 +31,80 @@ We set up our network from a set of configuration files that define how the node
 
 - **Network Definition Files (`network-name.json`):** These files define the network topology, including how many nodes are in each network, number of hosts, number of routers, and how they are connected together. The nodes that are defined will read the lnx files to determine their network settings.
   
-- **Lnx Files (`<node name>.lnx`):** These files define the network settings for a host or router - they will be read at startup to initialize the IP stack by creating interfaces, assigning IP addresses, and so on. These files are used to populate your node's forwarding table, and for routers, determine your
+- **Lnx Files (`<node name>.lnx`):** These files define the network settings for a host or router - they will be read at startup to initialize the IP stack by creating interfaces, assigning IP addresses, and so on. These files are used to populate your node's forwarding table, and for routers, determine your initial configuration for RIP.
+
+#### Interfaces and IPs
+
+Each node has one or more _interfaces_, which are defined by the lnx file passed in at startup. Our interfaces will be simulated using UDP sockets: each interface has its own UDP port where it can send/receive packets: sending a packet from this UDP port is equivalent to sending the packet from that interface. For each interface, each node's UDP port is similar to a MAC address, which is a unique value (within our network) to identify that interface.
+
+Each node's interfaces are defined by the `interface` directive in its lnx file. For example, here are `r2`'s interface definitions from the example above.
+
+<img width="581" alt="Screenshot 2024-12-20 at 1 03 12 PM" src="https://github.com/user-attachments/assets/7f8a8548-d2fe-4668-94de-de2d8ff57166" />
+
+#### Virtual IPs
+Just like any _real_ IP network interface, a virtual interface has a virtual interface has a virtual IP address, netmask, and other settings for how to communicate with hosts on the local network. These IP addresses and networks do not route to the Internet - they exist solely within our virtual network.
+
+Following the the example above, `r2` is a member of 2 virtual IP networks:
+- `10.1.0.0/24` with virtual IP `10.1.0.2` (shared with `r1`)
+- `10.2.0.0/24` with virtual IP `10.2.0.1` (shared with hosts `h2` and `h3`)
+
+#### Neighbors and Local Networks
+In this virtual network, an interface is connected to one or more other nodes on a single IP subnet (eg. 10.1.0.0/24). All nodes on the same subnet can always communicate with each other, and always know each other’s IP addresses and “link-layer” UDP port information—this is provided in the node’s lnx file using the neighbor directive.
+
+For example, for each of `r2`’s subnets, there is a neighbor directive to tell `r2` about each other host on the network, as follows:
+
+<img width="573" alt="Screenshot 2024-12-20 at 3 56 00 PM" src="https://github.com/user-attachments/assets/5097b229-8a18-492e-ad3f-27ee17fb5ac1" />
+
+This means that `r2` (and any node: host or router) will always know how to reach its neighbors connected to the same subnet. For example, `r2` always knows that there are 2 neighbors reachable from interface `if1` (which has prefix `10.2.0.1/24`):
+
+`10.2.0.3` at `127.0.0.1:5005`
+`10.2.0.2` at `127.0.0.1:5006`
+
+### The IP Stack
+The core of the IP stack will be a virtual link layer and network layer, which together make up a framework to send and receive IP packest over the virtual network. A representation for a node's virtual interfaces (which are UDP sockets) and API for how to send and receive packets across the links is created here.
+
+This figure below shows the overall architecture for the major components:
+
+<img width="717" alt="Screenshot 2024-12-20 at 4 04 48 PM" src="https://github.com/user-attachments/assets/ab816d69-8b54-42ba-b4a0-45f5100cdda1" />
+
+When your nodes start up, you will listen for packets on each interface and send them to your virtual network layer for processing—you will parse the packet, determine if it’s valid, and then decide what to do with it based on the forwarding table. Routers have multiple interfaces and can forward packets to another interface. In our network, hosts have only one interface and only send or receive packets.
+
+From there, the IP stack is used to send and receive packets over the virtual network. At this stage, we have two "higher layers."
+
+- **Test Packets** (both hosts and routers): A simple interface for sending packets from the command line on each host/router.
+- **RIP** (routers only): Routers will communicate with each other to build a global view of all networks in the system and adapt to network changes.
+
+Both hosts and routers will have a small command line interface send packets, gather information about your network stack, and enable/disable interfaces
+
+#### IP-in-UDP Encapsulation
+UDP is used as the link layer for this project. Each node will create an interface for every line in its links file - those interfaces are implemented by a UDP socket. All of the virtual link layer frames it sends are directly encapsulated as payloads of UDP packets that will be sent over these sockets.
+
+#### IP Forwarding
+In addition, this project features a network layer that sends and receives IP packets using your link layer. Overall, the network layer will read packets from the link layer, then decide what to do with the packet: deliver it locally delivery or forward it to the next hop destination. The IP forwarding process follows the **IPv4 protocol** described in RFC791.
+
+The IP forwarding feature of this project performs _longest prefix matching_ in order to handle cases where there are multiple matches for a destination address. Additionally, the packets use the standard IPv4 header format described in Section 3.1 of RFC 791. The packet's TTL value is decremented and the checksum is recomputed.
+
+### Routing Information Protocol (RIP) Specification
+
+The **Routing Information Protocol (RIP)** is a widely-used distance-vector routing protocol designed to facilitate dynamic route discovery and dissemination among routers. RIP exchanges routing information with neighbors to construct and maintain routing tables, enabling efficient packet forwarding across interconnected networks. This specification outlines the customized version of RIP used in the Virtual IP Network project, adhering to the structure and behavior defined in RFC2453 with modifications tailored to the project's requirements.
+
+#### RIP Message Format
+The customized RIP protocol uses a slightly modified packet structure for exchanging routing information. Each RIP packet contains a command field, which specifies the type of message (1 for a request and 2 for a response), and a num_entries field that indicates the number of routing entries included in the packet, with a maximum value of 64. Each entry in the packet contains three fields: cost, which is an integer value representing the number of hops (ranging from 1 to 16, where 16 indicates infinity); address, which is the byte representation of the IP address for the advertised network; and mask, which is the subnet mask in byte format. For instance, to advertise the prefix 1.2.3.0/24, the address would be 1.2.3.0, and the mask would be 255.255.255.0. 
+
+All fields must be transmitted in network byte order (big-endian). Unlike the standard RIP implementation, this version sends RIP packets encapsulated directly in virtual IP packets, using protocol number 200.
+
+#### Protocol Operation
+RIP operates as a distance-vector protocol where routers exchange routing information with their direct neighbors, referred to as RIP neighbors. In this virtual network, RIP neighbors are explicitly defined in .lnx configuration files using the rip advertise-to directive. When a router comes online, it immediately sends a RIP Request message to each of its neighbors, requesting their routing tables. Neighbors respond with a RIP Response, which contains all routes in their tables. 
+
+Beyond this, RIP responses (or updates) are sent periodically every five seconds and whenever a router’s routing table changes. Periodic updates contain the entire routing table, whereas triggered updates, which occur due to table changes, include only the updated entries.
+
+#### Split Horizon and Poison Reverse
+To maintain stability and prevent routing loops, the protocol employs the split horizon mechanism with poisoned reverse. Split horizon ensures that a router does not send routing information back to the neighbor from which it originally learned the route. 
+
+For example, if Router A learns about a route to Router C from Router B, it will not advertise this route back to Router B. With poisoned reverse, the router instead advertises the route with a cost of 16 (infinity), signaling the neighbor that the route is unreachable. This modification ensures more robust convergence and prevents persistent routing loops.
+
+#### Route Timeouts
+Routing table entries learned from neighboring routers are subject to expiration if they are not refreshed within 12 seconds. When a route expires, the router marks its cost as infinity (16) and sends a triggered update to inform neighbors of the change. Afterward, the expired route is removed from the routing table unless a new, better route is received. This ensures that the routing table is constantly updated with valid routes while discarding stale or unreachable ones.
+
+#### Disabling Interfaces (Up/Down)
+No specific changes to RIP functionality are required when network interfaces are disabled. However, routers may choose to optimize behavior by either ceasing to advertise routes associated with the disabled interface or advertising them with a cost of 16 to indicate unreachability. Additionally, a router may send a triggered update when a link is disabled or re-enabled, allowing its neighbors to adjust their routing tables more quickly. These optimizations are optional but can enhance network convergence and reduce unnecessary routing updates.
