@@ -1,6 +1,6 @@
 # IP-TCP
 
-This project involves
+This project involves 2 major components: the **IP stack** and the **TCP stack**.
 
 ## IP
 
@@ -108,3 +108,58 @@ Routing table entries learned from neighboring routers are subject to expiration
 
 #### Disabling Interfaces (Up/Down)
 No specific changes to RIP functionality are required when network interfaces are disabled. However, routers may choose to optimize behavior by either ceasing to advertise routes associated with the disabled interface or advertising them with a cost of 16 to indicate unreachability. Additionally, a router may send a triggered update when a link is disabled or re-enabled, allowing its neighbors to adjust their routing tables more quickly. These optimizations are optional but can enhance network convergence and reduce unnecessary routing updates.
+
+## TCP
+
+This part of the project implements an RFC-compliant version of TCP on top of the virtual IP layer. Doing so allows us to extend the virtual network stack to implement _sockets_, which are the key networking abstraction at the transport layer that allows hosts to keep track of multiple, simultaneous connections.
+
+TCP involves extending `vhost` to use TCP to reliably send data between hosts. The goal is to reliably send whole files between hosts, even under a lossy network that intentionally drops packets.
+
+There are four major components to this part of the project: 
+1. An abstraction for sockets which maps packets to individual connections. A socket API was created to work with sockets, similar to a real networking API that allows applications to use this socket representation to interact with the virtual network.
+2. An implementation of the TCP state machine that implements connection setup and teardown.
+3. The sliding window protocol that determines when to send and receive data, acknowledges received data, and retransmits data as necessary
+4. A new set of REPL commands that allows the API to send and receive files.
+
+The first 3 items make up the **TCP stack**, which is another "layer" in our node that implements TCP.
+
+<img width="759" alt="Screenshot 2024-12-20 at 4 42 14 PM" src="https://github.com/user-
+  
+  attachments/assets/28480426-73bb-4973-884c-2f5c545ccd0b" />
+
+Fundamentally, the TCP stack is another component in a host that receives packets from the IP layer, similar to how RIP and test packets were handled in the IP stack. TCP uses IP protocol number 6 to receive packets. The socket API is the interface between the REPL commands and the rest of the TCP stack.
+
+### TCP State Machine
+This part of the project implements the TCP state machine, which is required to manage the various states of a connection. A state diagram provides a representation of these states and transitions. While the diagram may initially appear complex, participants are advised to begin by focusing on connection setup and termination under ideal conditions.
+
+The project follows the state machine and features described in RFC9293, with several exceptions:
+
+- Simultaneous OPEN and CLOSE are not required.
+- Silly Window Syndrome (SWS) avoidance is excluded.
+- The implementation does not consider PSH or URG flags. TCP options, precedence, and congestion control are not included (except for capstone participants).
+- Edge cases involving RST packets are only considered for normal sockets where an RST packet immediately terminates the connection.
+
+Here is a diagram of the full TCP state machine that is implemented here:
+
+<img width="740" alt="Screenshot 2024-12-20 at 4 58 12 PM" src="https://github.com/user-attachments/assets/4783948e-1f7f-4c3b-afbc-39ac04cfc800" />
+
+### Building and Sending TCP Packets
+
+#### Header and Libraries
+All TCP packets must use the standard TCP header. However, participants are not required to manually construct or parse these headers. Libraries such as Google’s netstack can be utilized to serialize, deserialize, and compute checksums. The TCP-in-IP example demonstrates how to parse headers and calculate checksums.
+
+Here are the key features for packets:
+
+- **Initial Sequence Numbers (ISNs):** Participants may select a random 32-bit integer for the ISN, as suggested by RFC9293.
+- **TCP Checksum:** The checksum calculation follows the pseudo-header method described in Section 3.1 of RFC9293.
+- **Packet Size:** Packets do not not exceed the maximum MTU of 1400 bytes. The maximum TCP payload size is determined by subtracting the sizes of the IP and TCP headers from the MTU.
+- **Options:** TCP options in incoming packets are be ignored, but this implementation does not crash when encountering such options.
+
+#### Sliding Window Protocol
+The sliding window protocol governs the transmission and reception of data and is a critical component of the TCP stack. The receiver handles out-of-order packets by placing them in a queue for later processing when the window catches up to their sequence numbers. The handling of these packets aligns with the relevant sections of RFC9293 and RFC1122.
+
+#### Retransmissions and Round-Trip Time (RTT)
+TCP retransmits timed-out segments based on the estimated round-trip time (RTT) to the destination. The RTT estimation includes the smoothed RTT (SRTT) and RTT variance (RTTVAR) according to the guidelines in RFC9293 Section 3 for measuring RTT, calculating timeouts, and managing retransmissions.
+
+#### Connection Termination
+Connection termination requires transitioning through specific states in the TCP state machine. All remaining data is transmitted and acknowledged before completing the termination process. The standard termination sequence described in RFC9293 applies, with modifications to simplify the project environment.
