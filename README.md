@@ -1,119 +1,165 @@
-# IP Design
+# IP-TCP
 
-## High-Level Design
-To design IP, we broke up our project into several different components: `cmd` and `pkg`. The `cmd` folder contains our logic and files for the host and router nodes in `vhost.go` and `vrouter.go` respectively. The `pkg` folder contains many different files, including one file with the handler functions (`handler.go`), one file with the IP node API (`protocol.go`), one file with the REPL logic (`repl.go`), one file called `util.go` that holds functions for converting between a `uint32` and `netip.Addr`, and lastly one file called `rip.go` that handles the RIP protocol logic.
- 
-## Application Flow
-In order to run the application, you have to first select the topology you want to run. Each network topology has a set of hosts or routers as well as how they're connected. Each host only has 1 interface to listen for packets on and a router can have multiple interfaces. 
+This project involves 2 major components: the **IP stack** and the **TCP stack**.
 
-Next, you have to generate the corresponding `lnx` files for each node. These files tell each node how to connect to the network at startup (i.e. its interfaces, IP addresses, local network configuration, etc.)
+## IP
 
-From here, you can load up the network and send packets from node to node.
+This part of the project involves constructing a **virtual IP network** that implements a link layer, IP forwarding, and routing. The project mimics the functionality of a network stack typically provided by the operating system, drivers, and hardware of a host or router. The virtual network is built entirely in user-space programs.
 
-## Application Structure and Notable Design Decisions
+### Overview
 
-### IP Layer
-In terms of constructing our network layer, as mentioned previously we have an `IPStack` API that provides the core functionality that is implemented by both hosts and routers.
+The virtual IP network simulates a network stack by constructing 2 primary components:
+1. **IP Forwarding:** The IP forwarding component processes received packets and determines whether to deliver them locally or forward them to another interface.
+2. **IP Stack API:** The IP stack API provides an interface for sending and receiving packets. It enables the seamless integration of the TCP stack and is used by both hosts and routers in the network.
+3. **RIP Routing:** This component implements the _routing information protocol_ to exchange routing information and dynamically update a router's forwarding table
 
-#### IP Stack API
+### Node Representation
+- **vhost:** The `vhost` program represents a **host** or **node** in the network. It uses the IP stack to send and receive UDP packets as well as communicate with other hosts and routers on the network.
+- **vrouter:** The `vrouter` program represents a **router** in the network. In addition to the features of `vhost`, it implements the RIP protocol and maintains and updates the forwarding table based on routing information received from neighboring routers.
 
-##### IP Stack API Data Entities
-The primary data entities/structs that are contained within our IP API protocol are the following:
+### Virtual Network Design
 
-- `IPPacket`: This struct holds the data needed to construct an IP packet. We use the built-in Go `ipv4header.Ipv4Header` type to represent the header and the payload is represented as a byte array.
- 
-- `Interface`: This struct holds the relevant fields for an interface of a particular router or host. Each interface has a name, IP address, network submask/prefix, neighbors map, UDP address of the interface, an up/down status, a `net.UDPConn` instance to listen to incoming UDP packets, and a mutex to handle concurrent reads and writes.
+The IP stack is built in a _virtual_ network. Instead of dealing with real hardware or drivers in the kernel, as mentioned previously, the IP stack is built entirely in users-space programs will make up hosts and routers. Here is an example network topology that we can create:
 
-- `ipCostInterfaceTuple`: This struct represents the value entity of the key-value structure stored in the forwarding table for both routers and hosts. It contains a next hop IP address, a cost for reaching that next hop address, the interface associated with that next hop, a type for that route (representing how that route was learned), and a timestamp of when that route was last refreshed.
+<img width="297" alt="Screenshot 2024-12-19 at 5 23 30 PM" src="https://github.com/user-attachments/assets/20a5507f-ba6a-4ce2-9e8d-e3bcc5163f74" />
 
-- `IPStack`: This struct is used to initialize an instance of either a host or router and provides extensible logic for both. It contains a routing type (none, static, or RIP), a forwarding table instance, a handler table to register handler functions, a map containing addresses to interfaces, a name-to-interface map, and a list of RIP neighbors (which is only used if the routing type of this node is RIP).
-The IPStack API functions are called on this struct. 
+This network has 3 hosts and 2 routers. To run this network, we define the topology using _configuration files_.
 
-##### IP Stack API Functions
-The primary responsibility of the IP stack API is to allow the user to initialize nodes as well as send and receive packets. The main functions that we include in our IP stack API are the following:
+#### Configuration Files
 
-- `Initialize()`: For this function, we essentially are initializing an instance of an IP stack, whether it is a host or a router.  The function's only argument is a `lnxconfig.IPConfig` file. The function is called on an uninitialized `IPStack` instance to populate its fields. Specifically, the function will register necessary handler functions, create the interfaces on the node to store in the IPStack fields, populate its neighbors map, and populate its forwarding table with the interfaces. If the routing is RIP, this will also set the struct's RipNeighbors.  
+We set up our network from a set of configuration files that define how the nodes connect to each other, what interfaces they have, and their IP addresses. There are 2 types of configuration files: **network definition files** and **lnx files**.
 
-- `SendIP()`: This function takes in a a source IP address, the current TTL of the packet, the destination IP address, the protocol number of that packet, and the data that is stored in that packet. The general flow for this function is to find the longest prefix match through a helper function called `findPrefixMatch()` that takes in a destination `netip.Addr` and returns a source IP address and destination `netUDPAddr`. Next, we have error checking that will drop the packet if no match is returned from `findPrefixMatch()`. We also check if the source interface the packet is sent from is down. If it is down, then we want to drop the packet (note that this allows the packet to still be sent along its typical path until it reaches the interface that is down - adhering to the reference behavior). From there, we construct the packet to send by creating an instance of a `ipv4header.IPv4Header`, marshaling the header bytes and computing a checksum via a helper function. Lastly, the bytes of the payload of the packet are constructed and sent to the destination via `WriteToUDP()` .
+- **Network Definition Files (`network-name.json`):** These files define the network topology, including how many nodes are in each network, number of hosts, number of routers, and how they are connected together. The nodes that are defined will read the lnx files to determine their network settings.
+  
+- **Lnx Files (`<node name>.lnx`):** These files define the network settings for a host or router - they will be read at startup to initialize the IP stack by creating interfaces, assigning IP addresses, and so on. These files are used to populate your node's forwarding table, and for routers, determine your initial configuration for RIP.
 
-- `findPrefixMatch()`: This function is called on an IPStack struct and takes a destination IP address as an argument. The function starts by looping through all prefix and tuple key-value pairs in the stack's forward table to determine the longest prefix match of the destination IP. If no match is found, we return nil. If the resulting tuple has route type of "L", which is a default route, we must make one additional lookup in the table by calling `findPrefixMatch()`, passing in the resulting tuple's IP as the new destination IP argument. Otherwise, we loop through all of the resulting tuple's interface's neighbors to see if any neighbor's IP matches the destination IP. If so, we return the neighbor's IP and udpAddr. If not, no match was found and nil is returned. 
+#### Interfaces and IPs
 
-- `Receive()`: In this function, we first start by creating a buffer to store the data we read in, then call `ReadFromUDP`. We parse the header bytes into an `ipv4header.IPv4Header` and then validate the checksum and TTL of the incoming packet. At this point, if the current interface calling the `Receive()` method is the correct destination, then we want to construct a new packet (since all we received in the first place were bytes) and call the appropriate callback function based on the protocol number. If the packet has not reached the appropriate destination, then we call `SendIP()` with the updated destination.
+Each node has one or more _interfaces_, which are defined by the lnx file passed in at startup. Our interfaces will be simulated using UDP sockets: each interface has its own UDP port where it can send/receive packets: sending a packet from this UDP port is equivalent to sending the packet from that interface. For each interface, each node's UDP port is similar to a MAC address, which is a unique value (within our network) to identify that interface.
 
-#### Host (vhost)
-Our host file consists of 2 main threads/goroutines: the **main** thread and the **listener** thread. The main thread is the initial point of entry and starts off by parsing the lnx configuration file. It then creates an instance of an `IPStack` and initializes its fields. From there, we iterate over all the interfaces of that node and starting listening on each one with a thread. The rest of the main function handles REPL commands from the user in a continuous for loop.
-On each of the interface listen threads, we simply call our IPStack's `Receive()` function in a continuous for loop. 
+Each node's interfaces are defined by the `interface` directive in its lnx file. For example, here are `r2`'s interface definitions from the example above.
 
-#### Router (vrouter)
-The overall structure of our router file is the same as the host file. However, one thing that is different is upon router initialization, we send a RIP request to all of the current router's neighbors. Additionally, we instantiate 2 additional goroutines in addition to the `listen()` goroutine on every interface: `routerPeriodicSend()` and `cleanExpiredRoutesTicker()`. The first thread's responsibility is to send router updates to RIP neighbors every 5 seconds and the second thread goes through every router in the router's forwarding table to clean up expired routes.
+<img width="581" alt="Screenshot 2024-12-20 at 1 03 12 PM" src="https://github.com/user-attachments/assets/7f8a8548-d2fe-4668-94de-de2d8ff57166" />
 
-### Known Bugs
-Nothing we are aware of. 
+#### Virtual IPs
+Just like any _real_ IP network interface, a virtual interface has a virtual interface has a virtual IP address, netmask, and other settings for how to communicate with hosts on the local network. These IP addresses and networks do not route to the Internet - they exist solely within our virtual network.
 
+Following the the example above, `r2` is a member of 2 virtual IP networks:
+- `10.1.0.0/24` with virtual IP `10.1.0.2` (shared with `r1`)
+- `10.2.0.0/24` with virtual IP `10.2.0.1` (shared with hosts `h2` and `h3`)
 
-# TCP Design
+#### Neighbors and Local Networks
+In this virtual network, an interface is connected to one or more other nodes on a single IP subnet (eg. 10.1.0.0/24). All nodes on the same subnet can always communicate with each other, and always know each other’s IP addresses and “link-layer” UDP port information—this is provided in the node’s lnx file using the neighbor directive.
 
-## Connection Structs
-First, we implemented a TCPStack struct, which most notably has fields ListenTable, ConnectionsTable, and IP. ListenTable maps a port to a struct representing a listener socket. The ConnectionsTable struct maps a four tuple (remote port, remote address, source port, source address) to a struct representing a normal socket.
+For example, for each of `r2`’s subnets, there is a neighbor directive to tell `r2` about each other host on the network, as follows:
 
-Then to represent a connection, we created 2 distinct structs: one for a listener socket and the other for a normal socket.
+<img width="573" alt="Screenshot 2024-12-20 at 3 56 00 PM" src="https://github.com/user-attachments/assets/5097b229-8a18-492e-ad3f-27ee17fb5ac1" />
 
-### TCPListener
-- The first struct we created was the TCPListener struct to represent a listener socket. 
-- This struct was simple and is comprised of state variables, such as Local Port, Local Addr, etc. Most importantly was the field for TCPStack, which holds the ListenTable and ConnectionsTable for the listener socket to look up incoming connections or create a new normal connection.
+This means that `r2` (and any node: host or router) will always know how to reach its neighbors connected to the same subnet. For example, `r2` always knows that there are 2 neighbors reachable from interface `if1` (which has prefix `10.2.0.1/24`):
 
-### TCPConn
-- The second struct we created was the TCPConn struct to represent a normal socket.
-- This struct has state fields, such as LocalPort, LocalAdr, SeqNum, ACK, ISN (initial seq num), CurWindow, ReceiverWin, etc. These fields all help the conn track information needed to communicate with the other connection
-- Some more important fields include the SendBuf and RecvBuf, which are used to track what information to send and receive. We implemented our own circular buffer from a byte slice, where the pointers are 0-indexed and are not-relative to the indices in the buffer. The pointers grow and when we index into the buffer, we will mod by the buffer-size. 
-- Next, we use a map from seq num to early arrival packet data to track our early arrivals. 
-- Lastly, we use an RTStruct to track retransmissions.
+`10.2.0.3` at `127.0.0.1:5005`
+`10.2.0.2` at `127.0.0.1:5006`
 
-### RTStruct
-- The RTStruct has several state fields, such as SRTT, Alpha, Beta, and RTO that are used in calculating the new value for the RTOTimer, which is a time.Ticker.
-- To actually track the retransmissions to be re-sent, we use a slice of *RTPacket. 
+### The IP Stack
+The core of the IP stack will be a virtual link layer and network layer, which together make up a framework to send and receive IP packest over the virtual network. A representation for a node's virtual interfaces (which are UDP sockets) and API for how to send and receive packets across the links is created here.
 
-### RTPacket
-- The RTPacket represents one packet that needs to be retransmitted.
-- The fields include a Timestamp, SeqNum, AckNum, Data, Flags, and NumTries, which tracks how many times we have already retransmitted the packet.
+This figure below shows the overall architecture for the major components:
 
-## Threads
+<img width="717" alt="Screenshot 2024-12-20 at 4 04 48 PM" src="https://github.com/user-attachments/assets/ab816d69-8b54-42ba-b4a0-45f5100cdda1" />
 
-### Sending/Receiving
-- To send or whenever a new connection is established, we first start a thread called CheckRTOTimer(), which will retransmit packets (if any) when the timer expires. Secondly, we start a thread called SendSegment(), which loops forever but uses a channel to block until there is data in the conn's send buffer. Data will be present in the send buffer is the user tries to send, which calls a function VWrite to write into the send buffer. 
-- Receiving data is part of the TCPHandler function that is called through our IPStack when a packet is at its destination. We have registered this handler function when our IPStack is initialized. When data reaches the destination, we write this data into the connection's receive buffer. To read from the receiver buffer, we call VRead, which will adjust the buffer pointers and return the bytes read.
-- Slight exceptions to this occur with the sf and rf commands. The rf command triggers an RFCommand() thread, which will call VRead and write the data to a file in a for loop until the other connection initiates a close. The sf command also triggers an SFCommand() thread, which will start the SendSegment() thread and continuously call VWrite in a for loop until it has written all file contents. 
+When your nodes start up, you will listen for packets on each interface and send them to your virtual network layer for processing—you will parse the packet, determine if it’s valid, and then decide what to do with it based on the forwarding table. Routers have multiple interfaces and can forward packets to another interface. In our network, hosts have only one interface and only send or receive packets.
 
-### Retransmissions
-- The only extra thread created is called CheckRTOTimer, which retransmits packets (if any) when the timer expires. 
-- The remaining, necessary retransmission logic is handled throughout the rest of the TCP Code. For instance, in SendSegment() we will add any packets sent to the retranmission queue and restart the timer. Additionally, within TCPHandler, we call a function to remove ACK'd packets from the retransmission queue.
+From there, the IP stack is used to send and receive packets over the virtual network. At this stage, we have two "higher layers."
 
-### Early Arrivals
-- We don't add any additional threads for early arrivals. The logic is again incorporated into our TCP Code. Within TCPHandler, we check the incoming packet's seq number against our next expected seq num. If it is an early arrival we add it to our map. When we do receive what we expect, we consult the early arrivals map to reconstruct as much data as we can, write it into the receive buffer, and delete it from the early arrivals map.
+- **Test Packets** (both hosts and routers): A simple interface for sending packets from the command line on each host/router.
+- **RIP** (routers only): Routers will communicate with each other to build a global view of all networks in the system and adapt to network changes.
 
-## Improvements
-- If we could redo this assignment again, we would probably use a sync map or other packages in Go that could make our code concurrency-safe because it might be easier than adding manual locks. We think something that slowed our performance down was how we loop through retransmissions when deleting them from the queue. Instead, it might have been easier to utilize a data structure like a priority queue instead of a slice, where the lowest sequence number would have highest priority. 
+Both hosts and routers will have a small command line interface send packets, gather information about your network stack, and enable/disable interfaces
 
-## Bugs
-- To the best of our knowledge (we ran the code so many times on files >= 1 MB before calling the project done), we did not see any bugs before submitting.
-- It is possible that since we have no manual locking, that there could be concurrency bugs? Although we have never run into this issue before. 
+#### IP-in-UDP Encapsulation
+UDP is used as the link layer for this project. Each node will create an interface for every line in its links file - those interfaces are implemented by a UDP socket. All of the virtual link layer frames it sends are directly encapsulated as payloads of UDP packets that will be sent over these sockets.
 
-## Performance Measurements
-We sent a file of size 1,189,921 bytes. The reference sent the file in 0.07698 seconds. Our implementation sent the file in 7.05259 seconds.
+#### IP Forwarding
+In addition, this project features a network layer that sends and receives IP packets using your link layer. Overall, the network layer will read packets from the link layer, then decide what to do with the packet: deliver it locally delivery or forward it to the next hop destination. The IP forwarding process follows the **IPv4 protocol** described in RFC791.
 
-## Packet Capture
-### 3-way Handshake: 
-- Packet capture lines: 1, 2, 3
-- Implementation is responding appropriately
+The IP forwarding feature of this project performs _longest prefix matching_ in order to handle cases where there are multiple matches for a destination address. Additionally, the packets use the standard IPv4 header format described in Section 3.1 of RFC 791. The packet's TTL value is decremented and the checksum is recomputed.
 
-### One Segment Sent and Acknowledged
-- Packet capture line (sent): 4
-- Packet capture line (acknowledged): 13
-- Implementation is responding appropriately
+### Routing Information Protocol (RIP) Specification
 
-### Retransmission
-- Packet capture line: 118
-- Implementation is responding appropriately
+The **Routing Information Protocol (RIP)** is a widely-used distance-vector routing protocol designed to facilitate dynamic route discovery and dissemination among routers. RIP exchanges routing information with neighbors to construct and maintain routing tables, enabling efficient packet forwarding across interconnected networks. This specification outlines the customized version of RIP used in the Virtual IP Network project, adhering to the structure and behavior defined in RFC2453 with modifications tailored to the project's requirements.
 
-### Connection Teardown
-- Packet capture lines: 1766, 1787, 1788, 1789
+#### RIP Message Format
+The customized RIP protocol uses a slightly modified packet structure for exchanging routing information. Each RIP packet contains a command field, which specifies the type of message (1 for a request and 2 for a response), and a num_entries field that indicates the number of routing entries included in the packet, with a maximum value of 64. Each entry in the packet contains three fields: cost, which is an integer value representing the number of hops (ranging from 1 to 16, where 16 indicates infinity); address, which is the byte representation of the IP address for the advertised network; and mask, which is the subnet mask in byte format. For instance, to advertise the prefix 1.2.3.0/24, the address would be 1.2.3.0, and the mask would be 255.255.255.0. 
+
+All fields must be transmitted in network byte order (big-endian). Unlike the standard RIP implementation, this version sends RIP packets encapsulated directly in virtual IP packets, using protocol number 200.
+
+#### Protocol Operation
+RIP operates as a distance-vector protocol where routers exchange routing information with their direct neighbors, referred to as RIP neighbors. In this virtual network, RIP neighbors are explicitly defined in .lnx configuration files using the rip advertise-to directive. When a router comes online, it immediately sends a RIP Request message to each of its neighbors, requesting their routing tables. Neighbors respond with a RIP Response, which contains all routes in their tables. 
+
+Beyond this, RIP responses (or updates) are sent periodically every five seconds and whenever a router’s routing table changes. Periodic updates contain the entire routing table, whereas triggered updates, which occur due to table changes, include only the updated entries.
+
+#### Split Horizon and Poison Reverse
+To maintain stability and prevent routing loops, the protocol employs the split horizon mechanism with poisoned reverse. Split horizon ensures that a router does not send routing information back to the neighbor from which it originally learned the route. 
+
+For example, if Router A learns about a route to Router C from Router B, it will not advertise this route back to Router B. With poisoned reverse, the router instead advertises the route with a cost of 16 (infinity), signaling the neighbor that the route is unreachable. This modification ensures more robust convergence and prevents persistent routing loops.
+
+#### Route Timeouts
+Routing table entries learned from neighboring routers are subject to expiration if they are not refreshed within 12 seconds. When a route expires, the router marks its cost as infinity (16) and sends a triggered update to inform neighbors of the change. Afterward, the expired route is removed from the routing table unless a new, better route is received. This ensures that the routing table is constantly updated with valid routes while discarding stale or unreachable ones.
+
+#### Disabling Interfaces (Up/Down)
+No specific changes to RIP functionality are required when network interfaces are disabled. However, routers may choose to optimize behavior by either ceasing to advertise routes associated with the disabled interface or advertising them with a cost of 16 to indicate unreachability. Additionally, a router may send a triggered update when a link is disabled or re-enabled, allowing its neighbors to adjust their routing tables more quickly. These optimizations are optional but can enhance network convergence and reduce unnecessary routing updates.
+
+## TCP
+
+This part of the project implements an RFC-compliant version of TCP on top of the virtual IP layer. Doing so allows us to extend the virtual network stack to implement _sockets_, which are the key networking abstraction at the transport layer that allows hosts to keep track of multiple, simultaneous connections.
+
+TCP involves extending `vhost` to use TCP to reliably send data between hosts. The goal is to reliably send whole files between hosts, even under a lossy network that intentionally drops packets.
+
+There are four major components to this part of the project: 
+1. An abstraction for sockets which maps packets to individual connections. A socket API was created to work with sockets, similar to a real networking API that allows applications to use this socket representation to interact with the virtual network.
+2. An implementation of the TCP state machine that implements connection setup and teardown.
+3. The sliding window protocol that determines when to send and receive data, acknowledges received data, and retransmits data as necessary
+4. A new set of REPL commands that allows the API to send and receive files.
+
+The first 3 items make up the **TCP stack**, which is another "layer" in our node that implements TCP.
+
+<img width="759" alt="Screenshot 2024-12-20 at 4 42 14 PM" src="https://github.com/user-
+  
+  attachments/assets/28480426-73bb-4973-884c-2f5c545ccd0b" />
+
+Fundamentally, the TCP stack is another component in a host that receives packets from the IP layer, similar to how RIP and test packets were handled in the IP stack. TCP uses IP protocol number 6 to receive packets. The socket API is the interface between the REPL commands and the rest of the TCP stack.
+
+### TCP State Machine
+This part of the project implements the TCP state machine, which is required to manage the various states of a connection. A state diagram provides a representation of these states and transitions. While the diagram may initially appear complex, participants are advised to begin by focusing on connection setup and termination under ideal conditions.
+
+The project follows the state machine and features described in RFC9293, with several exceptions:
+
+- Simultaneous OPEN and CLOSE are not required.
+- Silly Window Syndrome (SWS) avoidance is excluded.
+- The implementation does not consider PSH or URG flags. TCP options, precedence, and congestion control are not included (except for capstone participants).
+- Edge cases involving RST packets are only considered for normal sockets where an RST packet immediately terminates the connection.
+
+Here is a diagram of the full TCP state machine that is implemented here:
+
+<img width="740" alt="Screenshot 2024-12-20 at 4 58 12 PM" src="https://github.com/user-attachments/assets/4783948e-1f7f-4c3b-afbc-39ac04cfc800" />
+
+### Building and Sending TCP Packets
+
+#### Header and Libraries
+All TCP packets must use the standard TCP header. However, participants are not required to manually construct or parse these headers. Libraries such as Google’s netstack can be utilized to serialize, deserialize, and compute checksums. The TCP-in-IP example demonstrates how to parse headers and calculate checksums.
+
+Here are the key features for packets:
+
+- **Initial Sequence Numbers (ISNs):** Participants may select a random 32-bit integer for the ISN, as suggested by RFC9293.
+- **TCP Checksum:** The checksum calculation follows the pseudo-header method described in Section 3.1 of RFC9293.
+- **Packet Size:** Packets do not not exceed the maximum MTU of 1400 bytes. The maximum TCP payload size is determined by subtracting the sizes of the IP and TCP headers from the MTU.
+- **Options:** TCP options in incoming packets are be ignored, but this implementation does not crash when encountering such options.
+
+#### Sliding Window Protocol
+The sliding window protocol governs the transmission and reception of data and is a critical component of the TCP stack. The receiver handles out-of-order packets by placing them in a queue for later processing when the window catches up to their sequence numbers. The handling of these packets aligns with the relevant sections of RFC9293 and RFC1122.
+
+#### Retransmissions and Round-Trip Time (RTT)
+TCP retransmits timed-out segments based on the estimated round-trip time (RTT) to the destination. The RTT estimation includes the smoothed RTT (SRTT) and RTT variance (RTTVAR) according to the guidelines in RFC9293 Section 3 for measuring RTT, calculating timeouts, and managing retransmissions.
+
+#### Connection Termination
+Connection termination requires transitioning through specific states in the TCP state machine. All remaining data is transmitted and acknowledged before completing the termination process. The standard termination sequence described in RFC9293 applies, with modifications to simplify the project environment.
